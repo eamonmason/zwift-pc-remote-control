@@ -145,33 +145,33 @@ async def test_launch_zwift_failure(pc_control_service):
 
 
 @pytest.mark.asyncio
-async def test_activate_zwift_launcher_success(pc_control_service):
-    """Test successful Zwift launcher activation."""
-    pc_control_service.ssh.execute_powershell = AsyncMock(
-        return_value=("Keyboard input sent to launcher", "", 0)
+async def test_activate_zwift_launcher_success(pc_control_service, monkeypatch):
+    """Test successful Zwift launcher activation via scheduled task."""
+    pc_control_service.ssh.execute = AsyncMock(
+        return_value=("SUCCESS: Attempted to run the scheduled task", "", 0)
     )
+
+    # Mock asyncio.sleep to avoid 35-second delay
+    async def mock_sleep(seconds):
+        pass
+
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
 
     result = await pc_control_service.activate_zwift_launcher()
 
     assert result is True
 
-    # Verify PowerShell script was called
-    call_args = pc_control_service.ssh.execute_powershell.call_args
-    script = call_args[0][0]
-
-    # Verify script contains expected keyboard commands
-    assert "Start-Sleep -Seconds 3" in script
-    assert "$wshell = New-Object -ComObject wscript.shell" in script
-    assert "$wshell.SendKeys('{TAB}')" in script
-    assert "Start-Sleep -Milliseconds 500" in script
-    assert "$wshell.SendKeys('~')" in script  # Enter key
+    # Verify scheduled task was triggered
+    call_args = pc_control_service.ssh.execute.call_args
+    command = call_args[0][0]
+    assert 'schtasks /Run /TN "ZwiftLauncherKeys"' in command
 
 
 @pytest.mark.asyncio
 async def test_activate_zwift_launcher_failure(pc_control_service):
     """Test Zwift launcher activation failure."""
-    pc_control_service.ssh.execute_powershell = AsyncMock(
-        return_value=("", "Failed to send keys", 1)
+    pc_control_service.ssh.execute = AsyncMock(
+        return_value=("", "ERROR: The system cannot find the path specified", 1)
     )
 
     result = await pc_control_service.activate_zwift_launcher()
@@ -182,9 +182,7 @@ async def test_activate_zwift_launcher_failure(pc_control_service):
 @pytest.mark.asyncio
 async def test_activate_zwift_launcher_exception(pc_control_service):
     """Test Zwift launcher activation handles exceptions gracefully."""
-    pc_control_service.ssh.execute_powershell = AsyncMock(
-        side_effect=Exception("SSH connection lost")
-    )
+    pc_control_service.ssh.execute = AsyncMock(side_effect=Exception("SSH connection lost"))
 
     result = await pc_control_service.activate_zwift_launcher()
 
