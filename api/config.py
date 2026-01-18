@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     zwift_scheduled_task: str = Field(
         default="LaunchZwiftRemote", description="Scheduled task name for Zwift"
     )
+    zwift_launcher_keys_task: str = Field(
+        default="ZwiftLauncherKeys", description="Scheduled task name for Zwift launcher automation"
+    )
     sauce_scheduled_task: str = Field(
         default="LaunchSauceRemote", description="Scheduled task name for Sauce"
     )

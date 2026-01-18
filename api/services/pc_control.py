@@ -185,32 +185,29 @@ class PCControlService:
         - Press Tab twice to navigate to the Launch button
         - Press Enter to activate it
 
+        Uses a scheduled task to run in the user's interactive session,
+        which is necessary due to Windows session isolation (SSH runs in
+        Session 0, user desktop is in Session 1).
+
         Returns:
             True if keyboard input was sent successfully
         """
-        logger.info("Activating Zwift launcher (Tab, Tab, Enter)...")
+        logger.info("Activating Zwift launcher via scheduled task...")
         try:
-            # PowerShell script to send keyboard input
-            script = """
-                # Wait for launcher window to appear
-                Start-Sleep -Seconds 3
+            # Trigger the ZwiftLauncherKeys scheduled task
+            # This task runs in the user's interactive session where it can
+            # access the launcher window and send keyboard input
+            command = f'schtasks /Run /TN "{settings.zwift_launcher_keys_task}"'
+            stdout, stderr, return_code = await self.ssh.execute(command, timeout=10)
 
-                # Send Tab, Tab, Enter using WScript.Shell
-                $wshell = New-Object -ComObject wscript.shell
-                $wshell.SendKeys('{TAB}')
-                Start-Sleep -Milliseconds 500
-                $wshell.SendKeys('{TAB}')
-                Start-Sleep -Milliseconds 500
-                $wshell.SendKeys('~')  # ~ is Enter key
-
-                Write-Host 'Keyboard input sent to launcher'
-            """
-            stdout, stderr, return_code = await self.ssh.execute_powershell(script, timeout=15)
             if return_code == 0:
-                logger.info("Zwift launcher activated successfully")
+                logger.info("Launcher activation task triggered")
+                # Wait for the automation script to complete (30s internal wait + 5s buffer)
+                logger.info("Waiting 35 seconds for launcher automation to complete...")
+                await asyncio.sleep(35)
                 return True
             else:
-                logger.warning(f"Failed to activate launcher: {stderr}")
+                logger.warning(f"Failed to trigger launcher activation: {stderr}")
                 return False
         except Exception as e:
             logger.warning(f"Error activating Zwift launcher: {e}")

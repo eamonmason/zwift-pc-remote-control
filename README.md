@@ -79,7 +79,31 @@ ssh ${PC_USER}@${PC_IP} "echo SSH works"
 chmod 600 ~/.ssh/id_rsa
 ```
 
-### 3. Run the API
+### 3. Deploy Windows Automation
+
+Deploy the required PowerShell scripts and scheduled tasks to your Windows PC:
+
+```bash
+# Run the comprehensive deployment script
+./deploy-all-automation.sh
+
+# This will:
+# - Create PowerShell scripts (LaunchZwift.ps1, LaunchSauce.ps1, zwift-launcher-keys.ps1)
+# - Create scheduled tasks (LaunchZwiftRemote, LaunchSauceRemote, ZwiftLauncherKeys)
+# - Verify deployment
+```
+
+The deployment script sets up:
+
+- **LaunchZwiftRemote**: Scheduled task that launches Zwift Launcher
+- **ZwiftLauncherKeys**: Scheduled task that automates launcher keyboard input (Tab, Tab, Enter)
+- **LaunchSauceRemote**: Scheduled task that launches Sauce for Zwift
+
+**Important**: This step only needs to be done once. The automation will persist across PC reboots.
+
+See [ZWIFT_LAUNCHER_AUTOMATION.md](ZWIFT_LAUNCHER_AUTOMATION.md) for technical details about how the launcher automation works.
+
+### 4. Run the API
 
 **Option A: Docker Deployment**
 
@@ -106,7 +130,7 @@ uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload --env-file .env.
 
 The API will be available at `http://localhost:8000`.
 
-### 4. Test the API
+### 5. Test the API
 
 ```bash
 # Check API health
