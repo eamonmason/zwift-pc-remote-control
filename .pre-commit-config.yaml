@@ -13,7 +13,6 @@ repos:
         name: Fix end of files
       - id: check-yaml
         name: Check YAML syntax
-        args: [--safe]
       - id: check-added-large-files
         name: Check for large files
         args: [--maxkb=500]
@@ -73,4 +72,4 @@ repos:
 
 # Configuration
 fail_fast: false
-default_stages: [commit]
+default_stages: [pre-commit]

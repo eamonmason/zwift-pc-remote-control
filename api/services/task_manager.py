@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Optional
 from uuid import UUID, uuid4
 
 from api.models import Task, TaskProgress, TaskStatus
@@ -16,7 +16,7 @@ class TaskManager:
 
     def __init__(self):
         """Initialize task manager with in-memory task store."""
-        self.tasks: Dict[UUID, Task] = {}
+        self.tasks: dict[UUID, Task] = {}
         self.pc_control = PCControlService()
 
     def create_task(self, task_type: str) -> Task:

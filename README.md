@@ -359,6 +359,7 @@ nerdctl compose up -d
 ```
 
 **Note**: All configuration is managed through `.env` file. The `docker-compose.yml` reads from `.env` including:
+
 - PC credentials (no hardcoded values)
 - SSH key paths (host and container)
 - Container user UID/GID

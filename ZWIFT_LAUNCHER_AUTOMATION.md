@@ -1,6 +1,6 @@
 # Zwift Launcher Automation
 
-**Date**: 2026-01-18  
+**Date**: 2026-01-18
 **Feature**: Automated keyboard input for Zwift launcher
 
 ## Problem
@@ -23,11 +23,13 @@ Added automated keyboard input to activate the Zwift launcher after it starts.
 **Location**: `api/services/pc_control.py:145-184`
 
 **Functionality**:
+
 - Waits 3 seconds for launcher window to appear
 - Sends keyboard input: Tab, Tab, Enter
 - Uses PowerShell `WScript.Shell` COM object for reliable key sending
 
 **Code**:
+
 ```python
 async def activate_zwift_launcher(self) -> bool:
     """
@@ -95,6 +97,7 @@ PowerShell has two methods for sending keyboard input:
 2. **WScript.Shell.SendKeys** - COM object, more reliable for background windows
 
 We chose `WScript.Shell` because:
+
 - Works reliably with background/hidden windows
 - No assembly loading required
 - Well-established COM interface
@@ -135,6 +138,7 @@ curl http://localhost:8000/api/v1/control/tasks/{TASK_ID}
 ```
 
 Expected sequence:
+
 ```
 ✅ Step 6:  Launching Zwift application
 ✅ Step 6b: Activating Zwift launcher
@@ -148,11 +152,13 @@ Expected sequence:
 ### Issue: Keyboard input not working
 
 **Possible causes**:
+
 1. Launcher window doesn't have focus
 2. Timing too short (launcher not ready)
 3. Different launcher UI layout
 
 **Solutions**:
+
 1. Increase wait time from 3 to 5 seconds
 2. Add retry logic
 3. Verify launcher UI hasn't changed (Tab, Tab, Enter is still correct)
@@ -160,6 +166,7 @@ Expected sequence:
 ### Issue: Wrong button activated
 
 If the launcher UI changes, you may need to adjust the Tab count:
+
 - 1 Tab = different button
 - 3 Tabs = different button
 - Shift+Tab = navigate backwards
@@ -167,6 +174,7 @@ If the launcher UI changes, you may need to adjust the Tab count:
 ### Issue: PowerShell error
 
 Check PowerShell execution policy:
+
 ```powershell
 Get-ExecutionPolicy
 # Should be RemoteSigned or Unrestricted
@@ -176,22 +184,22 @@ Get-ExecutionPolicy
 
 ### 1. Mouse Automation
 
-**Pros**: More precise, clicks exact coordinates  
+**Pros**: More precise, clicks exact coordinates
 **Cons**: Brittle (breaks if window moves), requires screen resolution detection
 
 ### 2. UI Automation Framework
 
-**Pros**: Robust, finds controls by name/type  
+**Pros**: Robust, finds controls by name/type
 **Cons**: Complex, requires .NET assemblies, slower
 
 ### 3. AutoHotkey
 
-**Pros**: Powerful scripting language for automation  
+**Pros**: Powerful scripting language for automation
 **Cons**: Requires installation of additional software
 
 ### 4. Keyboard Input (Chosen)
 
-**Pros**: Simple, reliable, no dependencies  
+**Pros**: Simple, reliable, no dependencies
 **Cons**: Assumes consistent UI layout
 
 ## Future Enhancements
@@ -219,6 +227,6 @@ pc-remote-control/
 
 ---
 
-**Status**: ✅ Implemented  
-**Tested**: Pending full integration test  
+**Status**: ✅ Implemented
+**Tested**: Pending full integration test
 **Impact**: Enables fully automated Zwift startup without manual intervention

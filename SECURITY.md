@@ -139,7 +139,7 @@ The following security enhancements are planned for future releases:
 
 If you discover a security vulnerability, please report it responsibly:
 
-- **Email**: eamon.mason@thomsonreuters.com
+- **Email**: <eamon.mason@thomsonreuters.com>
 - **Subject**: "Zwift Control API Security Issue"
 - **Include**:
   - Description of the vulnerability
@@ -267,4 +267,4 @@ This security policy is provided "as-is" without warranty. By using this softwar
 
 **Last Updated**: 2026-01-18
 **Version**: 1.0.0
-**Contact**: eamon.mason@thomsonreuters.com
+**Contact**: <eamon.mason@thomsonreuters.com>
