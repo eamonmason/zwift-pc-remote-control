@@ -77,6 +77,40 @@ class PCControlService:
         logger.warning(f"Desktop did not load within {settings.desktop_timeout}s")
         return False
 
+    async def kill_zwift_processes(self) -> bool:
+        """
+        Kill any existing Zwift processes (ZwiftLauncher, ZwiftApp, Zwift).
+
+        This is necessary before launching Zwift to ensure a clean start,
+        especially if a previous launcher instance is stuck.
+
+        Returns:
+            True if processes were killed or none were running
+        """
+        logger.info("Killing any existing Zwift processes...")
+        try:
+            script = """
+                $killed = @()
+                $processes = Get-Process -Name 'ZwiftApp','ZwiftLauncher','Zwift' -ErrorAction SilentlyContinue
+                if ($processes) {
+                    $processes | ForEach-Object {
+                        $killed += $_.ProcessName
+                        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+                    }
+                    Start-Sleep -Seconds 2
+                    Write-Host "Killed: $($killed -join ', ')"
+                } else {
+                    Write-Host 'No Zwift processes found'
+                }
+            """
+            stdout, stderr, return_code = await self.ssh.execute_powershell(script, timeout=10)
+            logger.info(f"Zwift processes: {stdout.strip()}")
+            return True
+        except Exception as e:
+            logger.warning(f"Error killing Zwift processes: {e}")
+            # Not critical - continue anyway
+            return True
+
     async def stop_sunshine(self) -> bool:
         """
         Stop Sunshine service to free NVENC encoder (~11% encoder + 2-3% CPU).
@@ -293,6 +327,7 @@ class PCControlService:
             "ssh_available": False,
             "desktop_loaded": False,
             "sunshine_stopped": False,
+            "zwift_killed": False,
             "zwift_launched": False,
             "sauce_launched": False,
             "zwift_running": False,
@@ -324,20 +359,26 @@ class PCControlService:
             # Step 5: Stop Sunshine
             results["sunshine_stopped"] = await self.stop_sunshine()
 
-            # Step 6: Launch Zwift
+            # Step 6: Kill any existing Zwift processes
+            results["zwift_killed"] = await self.kill_zwift_processes()
+
+            # Step 7: Launch Zwift
             results["zwift_launched"] = await self.launch_zwift()
             if not results["zwift_launched"]:
                 return results
 
-            # Step 7: Launch Sauce
+            # Step 8: Activate Zwift launcher
+            await self.activate_zwift_launcher()
+
+            # Step 9: Launch Sauce
             results["sauce_launched"] = await self.launch_sauce()
 
-            # Step 8: Wait for Zwift to start
+            # Step 10: Wait for Zwift to start
             results["zwift_running"] = await self.wait_for_zwift()
             if not results["zwift_running"]:
                 return results
 
-            # Step 9: Set process priorities
+            # Step 11: Set process priorities
             results["priorities_set"] = await self.set_process_priorities()
 
             # All critical steps succeeded
