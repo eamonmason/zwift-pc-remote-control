@@ -1,0 +1,35 @@
+services:
+  zwift-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zwift-control-api
+    network_mode: "host"  # Required for WoL broadcast packets
+    env_file:
+      - .env
+    environment:
+      - PC_NAME=${PC_NAME}
+      - PC_IP=${PC_IP}
+      - PC_MAC=${PC_MAC}
+      - PC_USER=${PC_USER}
+      - API_PORT=${API_PORT}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - WOL_TIMEOUT=${WOL_TIMEOUT}
+      - SSH_TIMEOUT=${SSH_TIMEOUT}
+      - DESKTOP_TIMEOUT=${DESKTOP_TIMEOUT}
+      - ZWIFT_TIMEOUT=${ZWIFT_TIMEOUT}
+      - SSH_KEY_PATH=${SSH_KEY_PATH}
+      - SSH_CONNECT_TIMEOUT=${SSH_CONNECT_TIMEOUT}
+      - ZWIFT_SCHEDULED_TASK=${ZWIFT_SCHEDULED_TASK}
+      - SAUCE_SCHEDULED_TASK=${SAUCE_SCHEDULED_TASK}
+    volumes:
+      - ${SSH_KEY_HOST_PATH}:${SSH_KEY_PATH}:ro
+      - ./logs:/app/logs
+    user: "${CONTAINER_USER_UID}:${CONTAINER_USER_GID}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${API_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
