@@ -64,9 +64,7 @@ async def test_wait_for_ssh_success(pc_control_service):
 @pytest.mark.asyncio
 async def test_wait_for_desktop_success(pc_control_service):
     """Test successful desktop load detection."""
-    pc_control_service.ssh.execute_powershell = AsyncMock(
-        return_value=("explorer.exe", "", 0)
-    )
+    pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("explorer.exe", "", 0))
 
     result = await pc_control_service.wait_for_desktop()
 
@@ -107,9 +105,7 @@ async def test_stop_sunshine_success(pc_control_service):
 @pytest.mark.asyncio
 async def test_stop_sunshine_not_found(pc_control_service):
     """Test Sunshine service not found."""
-    pc_control_service.ssh.execute_powershell = AsyncMock(
-        return_value=("Service not found", "", 1)
-    )
+    pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("Service not found", "", 1))
 
     result = await pc_control_service.stop_sunshine()
 
@@ -141,9 +137,7 @@ async def test_launch_zwift_success(pc_control_service):
 @pytest.mark.asyncio
 async def test_launch_zwift_failure(pc_control_service):
     """Test Zwift launch failure."""
-    pc_control_service.ssh.execute = AsyncMock(
-        return_value=("", "Task not found", 1)
-    )
+    pc_control_service.ssh.execute = AsyncMock(return_value=("", "Task not found", 1))
 
     result = await pc_control_service.launch_zwift()
 
@@ -211,9 +205,7 @@ async def test_launch_sauce_success(pc_control_service):
 @pytest.mark.asyncio
 async def test_launch_sauce_failure(pc_control_service):
     """Test Sauce launch failure (non-critical)."""
-    pc_control_service.ssh.execute = AsyncMock(
-        return_value=("", "Task not found", 1)
-    )
+    pc_control_service.ssh.execute = AsyncMock(return_value=("", "Task not found", 1))
 
     # Should still return True (non-critical operation)
     result = await pc_control_service.launch_sauce()
@@ -224,9 +216,7 @@ async def test_launch_sauce_failure(pc_control_service):
 @pytest.mark.asyncio
 async def test_wait_for_zwift_success(pc_control_service):
     """Test successful Zwift process detection."""
-    pc_control_service.ssh.execute_powershell = AsyncMock(
-        return_value=("ZwiftApp", "", 0)
-    )
+    pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("ZwiftApp", "", 0))
 
     result = await pc_control_service.wait_for_zwift()
 
@@ -267,9 +257,7 @@ async def test_set_process_priorities_success(pc_control_service):
 @pytest.mark.asyncio
 async def test_set_process_priorities_exception(pc_control_service):
     """Test process priority setting handles exceptions gracefully."""
-    pc_control_service.ssh.execute_powershell = AsyncMock(
-        side_effect=Exception("SSH error")
-    )
+    pc_control_service.ssh.execute_powershell = AsyncMock(side_effect=Exception("SSH error"))
 
     # Should return True (non-critical operation)
     result = await pc_control_service.set_process_priorities()
@@ -290,9 +278,7 @@ async def test_shutdown_pc_success(pc_control_service):
 @pytest.mark.asyncio
 async def test_shutdown_pc_failure(pc_control_service):
     """Test PC shutdown failure."""
-    pc_control_service.ssh.execute = AsyncMock(
-        side_effect=Exception("Connection lost")
-    )
+    pc_control_service.ssh.execute = AsyncMock(side_effect=Exception("Connection lost"))
 
     result = await pc_control_service.shutdown_pc()
 
