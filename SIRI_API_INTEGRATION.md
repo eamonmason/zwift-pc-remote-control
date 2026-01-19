@@ -1,6 +1,8 @@
+<!-- markdownlint-disable MD024 -->
 # iOS Siri Shortcuts Integration Guide
 
-This guide shows you how to create iOS Siri Shortcuts to control your Zwift PC using voice commands.
+This guide shows you how to create iOS Siri Shortcuts to control your
+Zwift PC using voice commands.
 
 ## Prerequisites
 
@@ -28,7 +30,7 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 
 Test the API from your iOS device's browser:
 
-```
+```text
 http://YOUR_IP:8000/health
 ```
 
@@ -38,7 +40,7 @@ You should see: `{"status":"healthy","timestamp":"..."}`
 
 This shortcut wakes your PC, launches Zwift, and notifies you when ready.
 
-### Steps
+### Steps for Start Zwift
 
 1. Open **Shortcuts** app on iOS
 2. Tap **+** to create new shortcut
@@ -109,14 +111,14 @@ This shortcut wakes your PC, launches Zwift, and notifies you when ready.
 - **Title**: "Zwift start timed out"
 - **Body**: "The start sequence did not complete in time. Check the API or PC."
 
-### Configure Siri Phrase
+### Configure Siri Phrase for Start Zwift
 
 1. Tap the shortcut name at the top
 2. Name it "Start Zwift"
 3. Tap "Add to Siri"
 4. Record phrase: "Start Zwift" or "Wake up my Zwift PC"
 
-### Usage
+### Using Start Zwift Shortcut
 
 Say: "Hey Siri, start Zwift"
 
@@ -130,7 +132,7 @@ Expected behavior:
 
 This shortcut shuts down your Zwift PC.
 
-### Steps
+### Steps for Stop Zwift
 
 1. Open **Shortcuts** app
 2. Tap **+** to create new shortcut
@@ -147,13 +149,13 @@ This shortcut shuts down your Zwift PC.
 - **Title**: "Zwift PC shutting down"
 - **Body**: "PC will power off in 5 seconds"
 
-### Configure Siri Phrase
+### Configure Siri Phrase for Stop Zwift
 
 1. Name it "Stop Zwift"
 2. Tap "Add to Siri"
 3. Record phrase: "Stop Zwift" or "Shut down my Zwift PC"
 
-### Usage
+### Using Stop Zwift Shortcut
 
 Say: "Hey Siri, stop Zwift"
 
@@ -166,7 +168,7 @@ Expected behavior:
 
 This shortcut checks if your PC and Zwift are running.
 
-### Steps
+### Steps for Check Zwift Status
 
 1. Open **Shortcuts** app
 2. Tap **+** to create new shortcut
@@ -193,7 +195,7 @@ This shortcut checks if your PC and Zwift are running.
 
 Build a status message using **Text** action:
 
-```
+```text
 PC: PCOnline
 Zwift: ZwiftRunning
 ```
@@ -205,13 +207,13 @@ Zwift: ZwiftRunning
 - **Title**: "Zwift Status"
 - **Body**: Magic Variable (Text from Action 4)
 
-### Configure Siri Phrase
+### Configure Siri Phrase for Check Zwift Status
 
 1. Name it "Check Zwift"
 2. Tap "Add to Siri"
 3. Record phrase: "Check Zwift status" or "Is Zwift running?"
 
-### Usage
+### Using Check Zwift Status Shortcut
 
 Say: "Hey Siri, check Zwift status"
 
@@ -225,7 +227,7 @@ Expected behavior:
 
 This shortcut only wakes the PC without launching Zwift.
 
-### Steps
+### Steps for Wake Zwift PC
 
 1. Open **Shortcuts** app
 2. Tap **+** to create new shortcut
@@ -276,10 +278,99 @@ This shortcut only wakes the PC without launching Zwift.
 - **Title**: "PC wake timed out"
 - **Body**: "PC did not respond in time"
 
-### Configure Siri Phrase
+### Configure Siri Phrase for Wake Zwift PC
 
 1. Name it "Wake Zwift PC"
 2. Add Siri phrase: "Wake my PC"
+
+## Shortcut 5: "Toggle Sunshine"
+
+This shortcut toggles the Sunshine game streaming service on/off based on
+its current state.
+
+### Use Cases
+
+- **Before Zwift events**: Stop Sunshine to free ~11% NVENC encoder + 2-3% CPU
+- **After Zwift**: Start Sunshine for remote game streaming access
+
+### Steps for Toggle Sunshine
+
+1. Open **Shortcuts** app
+2. Tap **+** to create new shortcut
+3. Add actions:
+
+#### Action 1: Get Contents of URL
+
+- **URL**: `http://192.168.1.X:8000/api/v1/control/sunshine/toggle`
+  - Replace `192.168.1.X` with your API IP address
+- **Method**: POST
+
+#### Action 2: Get Dictionary Value
+
+- **Get Value for**: `success`
+- **Dictionary**: Magic Variable (output from Action 1)
+- Set variable name: **Success**
+
+#### Action 3: Get Dictionary Value
+
+- **Get Value for**: `message`
+- **Dictionary**: Magic Variable (output from Action 1)
+- Set variable name: **Message**
+
+#### Action 4: Get Dictionary Value
+
+- **Get Value for**: `service_status.running`
+- **Dictionary**: Magic Variable (output from Action 1)
+- Set variable name: **Running**
+
+#### Action 5: If
+
+- **If**: **Success** is true
+- **Then**:
+  - Add **If** action:
+    - **If**: **Running** is true
+    - **Then**:
+      - **Show Notification**:
+        - **Title**: "Sunshine Started"
+        - **Body**: "Remote streaming enabled (consuming ~11% NVENC + 2-3% CPU)"
+    - **Otherwise**:
+      - **Show Notification**:
+        - **Title**: "Sunshine Stopped"
+        - **Body**: "Resources freed for better Zwift performance"
+- **Otherwise**:
+  - Add **Show Notification**:
+    - **Title**: "Sunshine Toggle Failed"
+    - **Body**: Magic Variable **Message**
+
+### Configure Siri Phrase for Toggle Sunshine
+
+1. Name it "Toggle Sunshine"
+2. Tap "Add to Siri"
+3. Record phrase: "Toggle Sunshine" or "Switch Sunshine streaming"
+
+### Using Toggle Sunshine Shortcut
+
+Say: "Hey Siri, toggle Sunshine"
+
+Expected behavior:
+
+- If Sunshine is running: stops it and shows "Sunshine Stopped"
+- If Sunshine is stopped: starts it and shows "Sunshine Started"
+- Takes 1-2 seconds to complete
+
+### Alternative: Separate Start/Stop Shortcuts
+
+If you prefer explicit control, create two separate shortcuts:
+
+**"Stop Sunshine":**
+
+- URL: `http://192.168.1.X:8000/api/v1/control/sunshine/stop`
+- Notification: "Sunshine stopped - resources freed"
+
+**"Start Sunshine":**
+
+- URL: `http://192.168.1.X:8000/api/v1/control/sunshine/start`
+- Notification: "Sunshine started - remote streaming enabled"
 
 ## Advanced: Combined Morning Routine
 
@@ -289,7 +380,7 @@ Create a shortcut that:
 2. Wakes and starts Zwift
 3. Opens Zwift Companion app
 
-### Steps
+### Steps for Morning Routine
 
 1. Create new shortcut named "Morning Ride"
 2. Add **Home** action (if you have smart coffee maker)
@@ -342,19 +433,26 @@ Create a shortcut that:
 
 ## Privacy & Security
 
-- **Local Network Only**: Shortcuts only work when iOS device is on the same network as API
+- **Local Network Only**: Shortcuts only work when iOS device is on the
+  same network as API
 - **No Internet Required**: All communication stays on local network
-- **No Authentication**: API has no auth - ensure it's not exposed to internet
+- **No Authentication**: API has no auth - ensure it's not exposed to
+  internet
 - **No Data Collection**: Shortcuts run entirely on your device
 
 ## Tips & Best Practices
 
-1. **Test in Shortcuts App First**: Run shortcuts manually before adding to Siri
-2. **Use WiFi**: Ensure iOS device is on WiFi (not cellular) for local network access
+1. **Test in Shortcuts App First**: Run shortcuts manually before adding
+   to Siri
+2. **Use WiFi**: Ensure iOS device is on WiFi (not cellular) for local
+   network access
 3. **Descriptive Names**: Use clear names like "Start Zwift" vs "Zwift 1"
-4. **Add Confirmation**: Consider adding "Ask Before Running" for destructive actions (shutdown)
-5. **Widgets**: Add shortcuts to home screen widget for quick access without Siri
-6. **Automation**: Use Shortcuts automation to run at specific times (e.g., 6 AM on weekdays)
+4. **Add Confirmation**: Consider adding "Ask Before Running" for
+   destructive actions (shutdown)
+5. **Widgets**: Add shortcuts to home screen widget for quick access
+   without Siri
+6. **Automation**: Use Shortcuts automation to run at specific times
+   (e.g., 6 AM on weekdays)
 
 ## Example Automation: Weekday Morning
 

@@ -252,3 +252,66 @@ async def start_sunshine() -> SunshineResponse:
         message="Sunshine service started successfully.",
         service_status=service_status,
     )
+
+
+@router.post("/sunshine/toggle", response_model=SunshineResponse)
+async def toggle_sunshine() -> SunshineResponse:
+    """
+    Toggle Sunshine game streaming service (start if stopped, stop if running).
+
+    This endpoint checks the current state of Sunshine and toggles it:
+    - If running: stops the service to free NVENC encoder (~11% encoder + 2-3% CPU)
+    - If stopped: starts the service for remote game streaming
+
+    Returns:
+        SunshineResponse with success status and service status
+
+    Raises:
+        HTTPException: If PC is offline or SSH unavailable
+    """
+    logger.info("Toggle Sunshine request received")
+
+    # Check PC status
+    status_checker = StatusChecker()
+    pc_status = await status_checker.check_pc_online()
+
+    if not pc_status.online:
+        raise HTTPException(
+            status_code=503,
+            detail="PC is offline. Cannot toggle Sunshine service.",
+        )
+
+    if not pc_status.ssh_available:
+        raise HTTPException(
+            status_code=503,
+            detail="SSH connection not available. Cannot toggle Sunshine service.",
+        )
+
+    # Check current Sunshine status
+    service_status = await status_checker.check_sunshine_status()
+    pc_control = PCControlService()
+
+    # Toggle based on current state
+    if service_status.running:
+        logger.info("Sunshine is running, stopping it...")
+        success = await pc_control.stop_sunshine()
+        action = "stopped"
+    else:
+        logger.info("Sunshine is stopped, starting it...")
+        success = await pc_control.start_sunshine()
+        action = "started"
+
+    if not success:
+        return SunshineResponse(
+            success=False,
+            message=f"Failed to {action[:-2]} Sunshine service. Service may not be installed or already in desired state.",
+        )
+
+    # Get updated service status
+    service_status = await status_checker.check_sunshine_status()
+
+    return SunshineResponse(
+        success=True,
+        message=f"Sunshine service {action} successfully.",
+        service_status=service_status,
+    )
