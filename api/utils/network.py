@@ -2,40 +2,60 @@
 
 import asyncio
 import logging
+import socket
 import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-async def send_wol_packet(mac_address: str) -> bool:
+async def send_wol_packet(mac_address: str, target_ip: str = "") -> bool:
     """
     Send Wake-on-LAN magic packet to the specified MAC address.
 
+    Uses a directed subnet broadcast (x.x.x.255) bound to the node's LAN IP
+    so the packet reaches the physical wire even under Cilium eBPF.
+    Limited broadcast (255.255.255.255) is dropped by Cilium with hostNetwork pods.
+
     Args:
         mac_address: MAC address in format XX:XX:XX:XX:XX:XX
+        target_ip:   IP of target PC — used to discover which local interface to bind.
+                     Falls back to INADDR_ANY if not provided.
 
     Returns:
         True if WoL packet was sent successfully, False otherwise
     """
     try:
-        process = await asyncio.create_subprocess_exec(
-            "wakeonlan",
-            mac_address,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
+        mac_bytes = bytes.fromhex(mac_address.replace(":", "").replace("-", ""))
+        magic = b"\xff" * 6 + mac_bytes * 16
 
-        if process.returncode == 0:
-            logger.info(f"WoL packet sent to {mac_address}")
-            return True
+        local_ip = ""
+        if target_ip:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+                    probe.connect((target_ip, 9))
+                    local_ip = probe.getsockname()[0]
+            except Exception:
+                pass
+
+        if local_ip and local_ip != "0.0.0.0":
+            broadcast = ".".join(local_ip.split(".")[:3]) + ".255"
         else:
-            logger.error(f"Failed to send WoL packet: {stderr.decode().strip()}")
-            return False
-    except FileNotFoundError:
-        logger.error("wakeonlan command not found. Install with: apt-get install wakeonlan")
-        return False
+            broadcast = "255.255.255.255"
+            local_ip = ""
+
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            if local_ip:
+                sock.bind((local_ip, 0))
+            sock.sendto(magic, (broadcast, 9))
+
+        logger.info(
+            f"WoL packet sent to {mac_address} via {broadcast} "
+            f"(bound to {local_ip or 'INADDR_ANY'})"
+        )
+        return True
+
     except Exception as e:
         logger.error(f"Error sending WoL packet: {e}")
         return False

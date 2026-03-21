@@ -30,7 +30,7 @@ class PCControlService:
             True if WoL packet was sent successfully
         """
         logger.info(f"Sending WoL packet to {settings.pc_name} ({settings.pc_mac})")
-        return await send_wol_packet(settings.pc_mac)
+        return await send_wol_packet(settings.pc_mac, settings.pc_ip)
 
     async def wait_for_network(self) -> bool:
         """
