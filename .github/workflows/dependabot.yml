@@ -1,0 +1,9 @@
+name: Dependabot Auto-merge
+
+on:
+  pull_request:
+
+jobs:
+  automerge:
+    uses: eamonmason/.github/.github/workflows/dependabot-automerge.yml@main
+    secrets: inherit
