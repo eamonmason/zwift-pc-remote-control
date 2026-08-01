@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from api.config import Settings
 from api.services.pc_control import PCControlService
+
+PLUG_IP = "192.168.1.175"
 
 
 @pytest.fixture
@@ -13,6 +16,58 @@ def pc_control_service(test_settings):
     with patch("api.services.pc_control.settings", test_settings):
         service = PCControlService()
         return service
+
+
+@pytest.fixture
+def plug_settings():
+    """Settings with a plug configured and every wait shortened for tests."""
+    return Settings(
+        pc_name="test-pc",
+        pc_ip="192.168.1.100",
+        pc_mac="AA:BB:CC:DD:EE:FF",
+        pc_user="testuser",
+        ssh_key_path="/tmp/test_key",
+        zwift_plug_ip=PLUG_IP,
+        plug_switch_timeout=1,
+        plug_settle_seconds=5,
+        plug_poll_interval=1,
+        plug_idle_watts=10.0,
+        plug_idle_samples=3,
+        shutdown_timeout=600,
+    )
+
+
+@pytest.fixture
+def plug_service(plug_settings):
+    """PCControlService with a plug configured, mocked Shelly, and no real sleeping."""
+    with (
+        patch("api.services.pc_control.settings", plug_settings),
+        patch("api.services.pc_control.shelly") as mock_shelly,
+        patch("api.services.pc_control.asyncio.sleep") as mock_sleep,
+        patch("api.services.pc_control.ping_host") as mock_ping,
+    ):
+        mock_shelly.get_switch_state = AsyncMock(return_value=False)
+        mock_shelly.get_power = AsyncMock(return_value=0.5)
+        mock_shelly.set_switch = AsyncMock(return_value=True)
+        mock_shelly.wait_for_switch_state = AsyncMock(return_value=True)
+        mock_ping.return_value = (False, None)
+
+        service = PCControlService()
+        service.mock_shelly = mock_shelly
+        service.mock_sleep = mock_sleep
+        service.mock_ping = mock_ping
+        yield service
+
+
+def fake_clock(step: float = 10.0):
+    """A monotonic clock that advances by `step` on every read."""
+    state = {"t": 0.0}
+
+    def _now():
+        state["t"] += step
+        return state["t"]
+
+    return _now
 
 
 @pytest.mark.asyncio
@@ -284,6 +339,20 @@ async def test_shutdown_pc_failure(pc_control_service):
 
 
 @pytest.mark.asyncio
+async def test_shutdown_pc_nonzero_return_code(pc_control_service):
+    """A rejected shutdown command must not report success.
+
+    The stop sequence keys the power cut off this result, so a false positive
+    here would mean cutting mains to a PC that was never asked to shut down.
+    """
+    pc_control_service.ssh.execute = AsyncMock(return_value=("", "Access is denied.", 5))
+
+    result = await pc_control_service.shutdown_pc()
+
+    assert result is False
+
+
+@pytest.mark.asyncio
 async def test_full_start_sequence_success(pc_control_service):
     """Test successful full start sequence."""
     # Mock all steps to succeed
@@ -370,3 +439,210 @@ async def test_wake_only_sequence_network_timeout(pc_control_service):
     assert result["wol_sent"] is True
     assert result["network_available"] is False
     assert result["ssh_available"] is False
+
+
+# --- Smart plug: powering on before WoL -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_power_on_plug_already_on_does_not_switch(plug_service):
+    """An already-energised plug is left alone - no switching, no settle delay."""
+    plug_service.mock_shelly.get_switch_state = AsyncMock(return_value=True)
+
+    result = await plug_service.power_on_plug()
+
+    assert result is True
+    plug_service.mock_shelly.set_switch.assert_not_called()
+    plug_service.mock_sleep.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_power_on_plug_switches_on_and_settles(plug_service):
+    """A plug that is off gets switched on, confirmed, then given NIC settle time."""
+    result = await plug_service.power_on_plug()
+
+    assert result is True
+    plug_service.mock_shelly.set_switch.assert_awaited_once_with(PLUG_IP, True)
+    plug_service.mock_shelly.wait_for_switch_state.assert_awaited_once()
+    plug_service.mock_sleep.assert_awaited_once_with(5)
+
+
+@pytest.mark.asyncio
+async def test_power_on_plug_unreachable_fails(plug_service):
+    """An unreachable plug fails loudly - a de-energised PC cannot answer WoL."""
+    plug_service.mock_shelly.get_switch_state = AsyncMock(return_value=None)
+
+    result = await plug_service.power_on_plug()
+
+    assert result is False
+    plug_service.mock_shelly.set_switch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_power_on_plug_not_confirmed_fails(plug_service):
+    """A plug that never reports "on" is not treated as powered."""
+    plug_service.mock_shelly.wait_for_switch_state = AsyncMock(return_value=False)
+
+    result = await plug_service.power_on_plug()
+
+    assert result is False
+    plug_service.mock_sleep.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_power_on_plug_noop_when_unconfigured(pc_control_service, test_settings):
+    """With no plug configured the API behaves exactly as it did before."""
+    with (
+        patch("api.services.pc_control.settings", test_settings),
+        patch("api.services.pc_control.shelly") as mock_shelly,
+    ):
+        result = await pc_control_service.power_on_plug()
+
+    assert result is True
+    mock_shelly.get_switch_state.assert_not_called()
+
+
+# --- Smart plug: cutting mains ----------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_power_off_plug_refuses_while_pc_still_pings(plug_service):
+    """The ping gate is what stops mains being cut from a running PC."""
+    plug_service.mock_ping.return_value = (True, 5)
+
+    result = await plug_service.power_off_plug()
+
+    assert result is False
+    plug_service.mock_shelly.set_switch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_power_off_plug_switches_off(plug_service):
+    """A live plug feeding a downed PC gets switched off and confirmed."""
+    plug_service.mock_shelly.get_switch_state = AsyncMock(return_value=True)
+
+    result = await plug_service.power_off_plug()
+
+    assert result is True
+    plug_service.mock_shelly.set_switch.assert_awaited_once_with(PLUG_IP, False)
+
+
+@pytest.mark.asyncio
+async def test_power_off_plug_already_off(plug_service):
+    """An already-dead plug needs no command."""
+    result = await plug_service.power_off_plug()
+
+    assert result is True
+    plug_service.mock_shelly.set_switch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_power_off_plug_unreachable_leaves_power_on(plug_service):
+    """An unreachable plug is reported, never assumed off."""
+    plug_service.mock_shelly.get_switch_state = AsyncMock(return_value=None)
+
+    result = await plug_service.power_off_plug()
+
+    assert result is False
+    plug_service.mock_shelly.set_switch.assert_not_called()
+
+
+# --- Smart plug: confirming the PC is really down ---------------------------
+
+
+@pytest.mark.asyncio
+async def test_wait_for_pc_powered_down_waits_for_draw_to_settle(plug_service):
+    """Ping going quiet is not enough - power draw must settle too."""
+    plug_service.mock_ping.side_effect = [(True, 5), (False, None)]
+    # Windows carries on installing updates with the network down.
+    plug_service.mock_shelly.get_power = AsyncMock(side_effect=[85.0, 62.0, 4.1, 3.9, 4.0])
+
+    with patch("api.services.pc_control.time.monotonic", side_effect=fake_clock()):
+        result = await plug_service.wait_for_pc_powered_down()
+
+    assert result is True
+    assert plug_service.mock_shelly.get_power.await_count == 5
+
+
+@pytest.mark.asyncio
+async def test_wait_for_pc_powered_down_resets_on_power_spike(plug_service):
+    """A spike part-way through the idle window restarts the count."""
+    plug_service.mock_shelly.get_power = AsyncMock(side_effect=[2.0, 2.0, 90.0, 2.0, 2.0, 2.0])
+
+    with patch("api.services.pc_control.time.monotonic", side_effect=fake_clock()):
+        result = await plug_service.wait_for_pc_powered_down()
+
+    assert result is True
+    assert plug_service.mock_shelly.get_power.await_count == 6
+
+
+@pytest.mark.asyncio
+async def test_wait_for_pc_powered_down_times_out_while_still_drawing(plug_service, plug_settings):
+    """A PC still drawing power at the deadline is never confirmed down."""
+    plug_settings.shutdown_timeout = 30
+    plug_service.mock_shelly.get_power = AsyncMock(return_value=85.0)
+
+    with patch("api.services.pc_control.time.monotonic", side_effect=fake_clock()):
+        result = await plug_service.wait_for_pc_powered_down()
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_wait_for_pc_powered_down_unreadable_plug_is_not_proof(plug_service, plug_settings):
+    """A plug that cannot be read never confirms a power-down."""
+    plug_settings.shutdown_timeout = 30
+    plug_service.mock_shelly.get_power = AsyncMock(return_value=None)
+
+    with patch("api.services.pc_control.time.monotonic", side_effect=fake_clock()):
+        result = await plug_service.wait_for_pc_powered_down()
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_wait_for_pc_powered_down_times_out_while_pinging(plug_service, plug_settings):
+    """A PC that never stops answering ping fails the wait."""
+    plug_settings.shutdown_timeout = 30
+    plug_service.mock_ping.return_value = (True, 5)
+
+    with patch("api.services.pc_control.time.monotonic", side_effect=fake_clock()):
+        result = await plug_service.wait_for_pc_powered_down()
+
+    assert result is False
+    plug_service.mock_shelly.get_power.assert_not_called()
+
+
+# --- Sequences ---------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_full_start_sequence_plug_failure_skips_wol(pc_control_service):
+    """No mains, no point sending a magic packet."""
+    pc_control_service.power_on_plug = AsyncMock(return_value=False)
+    pc_control_service.wake_pc = AsyncMock(return_value=True)
+
+    result = await pc_control_service.full_start_sequence()
+
+    assert result["success"] is False
+    assert result["plug_powered"] is False
+    pc_control_service.wake_pc.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_wake_only_sequence_powers_plug_before_wol(pc_control_service):
+    """The wake-only path energises the plug too."""
+    pc_control_service.power_on_plug = AsyncMock(return_value=True)
+    pc_control_service.wake_pc = AsyncMock(return_value=True)
+    pc_control_service.wait_for_network = AsyncMock(return_value=True)
+    pc_control_service.wait_for_ssh = AsyncMock(return_value=True)
+
+    result = await pc_control_service.wake_only_sequence()
+
+    assert result["success"] is True
+    assert result["plug_powered"] is True
+    pc_control_service.power_on_plug.assert_awaited_once()
+
+
+# The stop sequence itself lives in TaskManager (the only caller) and is
+# covered in tests/services/test_task_manager.py.

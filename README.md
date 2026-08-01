@@ -5,8 +5,9 @@ REST API service for remotely controlling a Zwift PC via Wake-on-LAN, SSH, and p
 ## Features
 
 - **Wake-on-LAN**: Wake PC from sleep/off state
+- **Smart Plug Control**: Energise the PC's mains before WoL, and cut them again once it is confirmed powered down
 - **Automated Zwift Launch**: Full sequence including Zwift launcher activation (Tab, Tab, Enter) and Sauce for Zwift
-- **Remote Shutdown**: Safely power down the PC
+- **Remote Shutdown**: Safely power down the PC, waiting out any Windows Update install before cutting power
 - **Status Monitoring**: Check PC online status, Zwift process, and system services
 - **Background Tasks**: Non-blocking operations with progress tracking
 - **iOS Integration**: Designed for Siri Shortcuts control
@@ -149,7 +150,7 @@ curl -X POST http://localhost:8000/api/v1/control/start
 
 **POST /api/v1/control/start**
 
-Wake PC and launch Zwift (full sequence).
+Ensure mains power, wake the PC and launch Zwift (full sequence).
 
 Response:
 
@@ -163,14 +164,23 @@ Response:
 
 **POST /api/v1/control/stop**
 
-Shutdown the PC.
+Shut the PC down and cut its mains at the smart plug.
+
+Runs in the background and returns a task ID, because confirming a power-down
+can take tens of minutes when Windows installs updates on the way out. Poll
+`/api/v1/control/tasks/{task_id}` for progress.
+
+A PC that is already off the network is not rejected: that is exactly what a
+machine installing updates looks like, and its mains still need cutting.
 
 Response:
 
 ```json
 {
   "success": true,
-  "message": "Shutdown command sent. PC will shut down in 5 seconds."
+  "message": "Stop sequence initiated. Mains will be cut once the PC is powered down.",
+  "task_id": "uuid",
+  "estimated_duration_seconds": 300
 }
 ```
 
@@ -201,8 +211,8 @@ Response:
   "task_type": "start",
   "progress": {
     "current_step": "Waiting for Zwift to start",
-    "step_number": 8,
-    "total_steps": 9
+    "step_number": 9,
+    "total_steps": 10
   },
   "created_at": "2026-01-17T10:00:00Z"
 }
@@ -221,6 +231,25 @@ Response:
   "online": true,
   "ip_address": "192.168.1.194",
   "response_time_ms": 5,
+  "timestamp": "2026-01-17T10:00:00Z"
+}
+```
+
+**GET /api/v1/status/plug**
+
+Check the smart plug carrying the PC's mains. Works whether or not the PC is
+up: the power reading is the only signal available while Windows installs
+updates with the network down.
+
+Response:
+
+```json
+{
+  "configured": true,
+  "reachable": true,
+  "on": true,
+  "power_watts": 63.4,
+  "ip_address": "192.168.1.175",
   "timestamp": "2026-01-17T10:00:00Z"
 }
 ```
@@ -258,6 +287,12 @@ Response:
     "running": true,
     "process_id": 12345
   },
+  "plug": {
+    "configured": true,
+    "reachable": true,
+    "on": true,
+    "power_watts": 142.7
+  },
   "sunshine": {
     "name": "SunshineService",
     "running": false,
@@ -294,6 +329,30 @@ All configuration is via environment variables (loaded from `.env` file):
 - `PC_IP`: Zwift PC IP address (REQUIRED - no default)
 - `PC_MAC`: Zwift PC MAC address for WoL (REQUIRED - no default)
 - `PC_USER`: SSH username (REQUIRED - no default)
+
+### Smart Plug Configuration (optional)
+
+The PC's mains run through a Shelly Gen2 plug with auth disabled, driven over
+plain HTTP RPC. Leave `ZWIFT_PLUG_IP` empty to disable plug control entirely,
+in which case the API behaves exactly as it did before the plug was fitted.
+
+- `ZWIFT_PLUG_IP`: Plug IP address (default: empty, meaning no plug)
+- `PLUG_SWITCH_TIMEOUT`: Wait for the plug to confirm a new state, in seconds
+  (default: 30)
+- `PLUG_SETTLE_SECONDS`: Delay after energising the plug before sending WoL, so
+  the NIC is listening (default: 10)
+- `PLUG_POLL_INTERVAL`: Seconds between power-draw readings (default: 10)
+- `PLUG_IDLE_WATTS`: Draw at or below this counts as powered down (default: 10)
+- `PLUG_IDLE_SAMPLES`: Consecutive idle readings required (default: 3)
+- `SHUTDOWN_TIMEOUT`: Cap on waiting for a power-down, sized for a Windows
+  Update install (default: 1800). On expiry the mains are deliberately left on.
+
+Why power draw rather than ping: Windows can spend a long time installing
+updates after the network has already gone quiet, and cutting mains during that
+would risk a corrupt install. Only a sustained drop in draw proves it is done.
+Two further gates make an accidental cut hard: mains are never cut while the PC
+still answers ping, and an unreadable plug is never treated as proof of
+anything.
 
 ### API Configuration
 

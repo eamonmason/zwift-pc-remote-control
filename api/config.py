@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     )
     pc_user: str = Field(description="SSH username for PC (REQUIRED - no default for security)")
 
+    # Smart Plug Configuration
+    # The Shelly Gen2 plug carrying mains for the PC. Optional: an empty IP
+    # disables plug control entirely, so the API behaves exactly as it did
+    # before the plug was fitted.
+    zwift_plug_ip: str = Field(
+        default="", description="Shelly plug IP address (empty disables plug control)"
+    )
+
     # API Configuration
     api_port: int = Field(default=8000, description="API server port")
     log_level: str = Field(default="INFO", description="Logging level")
@@ -31,6 +39,27 @@ class Settings(BaseSettings):
     ssh_timeout: int = Field(default=60, description="Timeout for SSH to become available")
     desktop_timeout: int = Field(default=60, description="Timeout for Windows desktop to load")
     zwift_timeout: int = Field(default=60, description="Timeout for Zwift to launch")
+
+    # Plug Timing Configuration
+    plug_switch_timeout: int = Field(
+        default=30, description="Timeout for the plug to confirm a new switch state"
+    )
+    plug_settle_seconds: int = Field(
+        default=10, description="Delay after energising the plug before sending WoL"
+    )
+    plug_poll_interval: int = Field(
+        default=10, description="Interval between power-draw readings during shutdown"
+    )
+    plug_idle_watts: float = Field(
+        default=10.0, description="Power draw at or below which the PC counts as off"
+    )
+    plug_idle_samples: int = Field(
+        default=3, description="Consecutive idle power readings required before cutting mains"
+    )
+    shutdown_timeout: int = Field(
+        default=1800,
+        description="Cap on waiting for the PC to power down, sized for a Windows Update install",
+    )
 
     # SSH Configuration
     ssh_key_path: str = Field(default="~/.ssh/id_rsa", description="Path to SSH private key")

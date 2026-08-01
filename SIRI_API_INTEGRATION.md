@@ -130,7 +130,12 @@ Expected behavior:
 
 ## Shortcut 2: "Stop Zwift"
 
-This shortcut shuts down your Zwift PC.
+This shortcut shuts down your Zwift PC and cuts its mains at the smart plug.
+
+The API does the shutdown in the background, because it waits for the PC to be
+genuinely powered down before cutting power — and Windows may install updates
+on the way out, with the network already down. The simple version below fires
+and forgets; the optional extra actions poll until the mains are actually off.
 
 ### Steps for Stop Zwift
 
@@ -147,7 +152,27 @@ This shortcut shuts down your Zwift PC.
 #### Action 2: Show Notification
 
 - **Title**: "Zwift PC shutting down"
-- **Body**: "PC will power off in 5 seconds"
+- **Body**: "Mains will be cut once it has powered down"
+
+#### Optional: Wait for the Power Cut
+
+To be told when mains are actually off, poll the task the same way "Start
+Zwift" does:
+
+1. **Get Dictionary Value**: `task_id` from Action 1, set variable **TaskID**
+2. **Repeat** 20 times, and inside the loop:
+   - **Wait** 60 seconds
+   - **Get Contents of URL**: `http://192.168.1.X:8000/api/v1/control/tasks/`
+     followed by the **TaskID** magic variable, method GET
+   - **Get Dictionary Value**: `status`
+   - **If** it is "completed": show a notification "Zwift PC powered down" and
+     **Exit Shortcut**
+   - **If** it is "failed": show the `error` value — the usual cause is that
+     the power-down could not be confirmed, in which case mains are left ON on
+     purpose
+
+Allow a generous number of repeats: a pending Windows Update install can push
+this well past ten minutes.
 
 ### Configure Siri Phrase for Stop Zwift
 
@@ -162,7 +187,8 @@ Say: "Hey Siri, stop Zwift"
 Expected behavior:
 
 - Immediate notification
-- PC shuts down within 5 seconds
+- PC starts shutting down within 5 seconds
+- Mains are cut once its power draw has settled at idle
 
 ## Shortcut 3: "Check Zwift Status"
 

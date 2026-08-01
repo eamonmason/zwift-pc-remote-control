@@ -53,10 +53,24 @@ class ServiceStatus(BaseModel):
     status: Optional[str] = Field(default=None, description="Service status string")
 
 
+class PlugStatus(BaseModel):
+    """Smart plug status for the plug carrying mains to the PC."""
+
+    configured: bool = Field(description="Whether a plug is configured for this PC")
+    reachable: bool = Field(default=False, description="Whether the plug answered")
+    on: Optional[bool] = Field(default=None, description="Whether the plug output is energised")
+    power_watts: Optional[float] = Field(default=None, description="Instantaneous power draw")
+    ip_address: Optional[str] = Field(default=None, description="Plug IP address")
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow, description="Timestamp of status check"
+    )
+
+
 class FullStatus(BaseModel):
     """Comprehensive system status."""
 
     pc: PCStatus = Field(description="PC online status")
+    plug: Optional[PlugStatus] = Field(default=None, description="Smart plug status")
     zwift: Optional[ZwiftStatus] = Field(
         default=None, description="Zwift status (null if PC offline)"
     )
@@ -102,8 +116,15 @@ class StartResponse(BaseModel):
 class StopResponse(BaseModel):
     """Response from stop endpoint."""
 
-    success: bool = Field(description="Whether shutdown command was sent successfully")
+    success: bool = Field(description="Whether the stop sequence was initiated successfully")
     message: str = Field(description="Informational message")
+    task_id: Optional[UUID] = Field(
+        default=None, description="Task ID for tracking the shutdown and power cut"
+    )
+    estimated_duration_seconds: int = Field(
+        default=300,
+        description="Rough estimate; a pending Windows Update install can take far longer",
+    )
 
 
 class WakeResponse(BaseModel):

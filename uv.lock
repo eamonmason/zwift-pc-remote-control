@@ -1097,6 +1097,7 @@ source = { editable = "." }
 dependencies = [
     { name = "asyncssh" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -1118,6 +1119,7 @@ dev = [
 requires-dist = [
     { name = "asyncssh", specifier = ">=2.14.0" },
     { name = "fastapi", specifier = ">=0.109.0" },
+    { name = "httpx", specifier = ">=0.26.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6.0" },
     { name = "prometheus-client", specifier = ">=0.19.0" },

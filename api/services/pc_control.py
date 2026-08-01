@@ -2,9 +2,11 @@
 
 import asyncio
 import logging
+import time
 
 from api.config import settings
-from api.utils.network import send_wol_packet, wait_for_ping
+from api.utils import shelly
+from api.utils.network import ping_host, send_wol_packet, wait_for_ping
 from api.utils.ssh_client import SSHClient
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,164 @@ class PCControlService:
             username=settings.pc_user,
             key_path=settings.ssh_key_path,
             connect_timeout=settings.ssh_connect_timeout,
+        )
+
+    @property
+    def plug_enabled(self) -> bool:
+        """Whether a smart plug is configured in front of the PC."""
+        return bool(settings.zwift_plug_ip)
+
+    async def power_on_plug(self) -> bool:
+        """
+        Ensure the plug feeding the PC is energised, ready for a WoL packet.
+
+        Fails loudly: a PC with no mains cannot answer a magic packet, so there
+        is no point continuing a start sequence without power.
+
+        Returns:
+            True if the PC has mains power (or no plug is configured)
+        """
+        if not self.plug_enabled:
+            logger.debug("No plug configured - assuming the PC is already on mains")
+            return True
+
+        plug_ip = settings.zwift_plug_ip
+        state = await shelly.get_switch_state(plug_ip)
+
+        if state is None:
+            logger.error(f"Plug {plug_ip} is unreachable - cannot guarantee mains power to the PC")
+            return False
+
+        if state:
+            logger.info(f"Plug {plug_ip} is already on")
+            return True
+
+        logger.info(f"Plug {plug_ip} is off - switching it on")
+        if not await shelly.set_switch(plug_ip, True):
+            logger.error(f"Plug {plug_ip} rejected the switch-on command")
+            return False
+
+        if not await shelly.wait_for_switch_state(
+            plug_ip, True, timeout=settings.plug_switch_timeout
+        ):
+            return False
+
+        # The NIC needs a moment to come up before it will honour a magic packet.
+        logger.info(f"Waiting {settings.plug_settle_seconds}s for the PC's NIC to settle")
+        await asyncio.sleep(settings.plug_settle_seconds)
+        return True
+
+    async def wait_for_pc_powered_down(self) -> bool:
+        """
+        Wait until the PC is genuinely powered down, not merely off the network.
+
+        Two phases, sharing one overall timeout:
+
+        1. Wait for ping to stop answering.
+        2. Wait for the plug's power draw to settle at idle. This is the phase
+           that survives a Windows Update install, where the network is already
+           down but the machine is still drawing full power.
+
+        Without a metering plug the second phase cannot be confirmed, and this
+        returns False so the caller leaves mains on.
+
+        Returns:
+            True if the PC was confirmed powered down within the timeout
+        """
+        deadline = time.monotonic() + settings.shutdown_timeout
+
+        logger.info("Waiting for the PC to stop responding to ping...")
+        while time.monotonic() < deadline:
+            is_online, _ = await ping_host(settings.pc_ip, timeout=1)
+            if not is_online:
+                break
+            await asyncio.sleep(settings.plug_poll_interval)
+        else:
+            logger.warning(f"PC still answering ping after {settings.shutdown_timeout}s")
+            return False
+
+        logger.info("PC is off the network")
+
+        if not self.plug_enabled:
+            return True
+
+        # Windows may now spend a long time installing updates with the network
+        # down. Only a sustained drop in power draw proves it has finished.
+        logger.info(
+            f"Waiting for power draw to settle at or below {settings.plug_idle_watts}W "
+            f"for {settings.plug_idle_samples} consecutive readings"
+        )
+        idle_readings = 0
+        while time.monotonic() < deadline:
+            power = await shelly.get_power(settings.zwift_plug_ip)
+
+            if power is None:
+                # An unreadable plug proves nothing, so it does not count.
+                logger.warning(f"Could not read power draw from {settings.zwift_plug_ip}")
+                idle_readings = 0
+            elif power <= settings.plug_idle_watts:
+                idle_readings += 1
+                logger.info(
+                    f"Power draw {power}W is idle ({idle_readings}/{settings.plug_idle_samples})"
+                )
+                if idle_readings >= settings.plug_idle_samples:
+                    logger.info("PC is powered down")
+                    return True
+            else:
+                if idle_readings:
+                    logger.info(f"Power draw back up to {power}W - restarting the idle count")
+                else:
+                    logger.info(f"Power draw {power}W - PC is still busy (updates?)")
+                idle_readings = 0
+
+            await asyncio.sleep(settings.plug_poll_interval)
+
+        logger.warning(
+            f"Power draw did not settle within {settings.shutdown_timeout}s - "
+            "leaving mains on rather than cutting power mid-write"
+        )
+        return False
+
+    async def power_off_plug(self) -> bool:
+        """
+        Cut mains to the PC.
+
+        Never fatal and never assumes: leaving power on is always safer than
+        cutting it, so every uncertain case returns False with the plug on. The
+        ping gate is the check that actually prevents de-energising a running PC.
+
+        Returns:
+            True if mains are confirmed off (or no plug is configured)
+        """
+        if not self.plug_enabled:
+            logger.debug("No plug configured - nothing to switch off")
+            return True
+
+        plug_ip = settings.zwift_plug_ip
+
+        is_online, _ = await ping_host(settings.pc_ip, timeout=1)
+        if is_online:
+            logger.error(
+                f"{settings.pc_name} is still answering ping - refusing to cut mains. "
+                "Leaving power ON."
+            )
+            return False
+
+        state = await shelly.get_switch_state(plug_ip)
+        if state is None:
+            logger.warning(f"Plug {plug_ip} is unreachable - leaving mains on, cut it manually")
+            return False
+
+        if not state:
+            logger.info(f"Plug {plug_ip} is already off")
+            return True
+
+        if not await shelly.set_switch(plug_ip, False):
+            logger.warning(f"Plug {plug_ip} rejected the switch-off command")
+            return False
+
+        return await shelly.wait_for_switch_state(
+            plug_ip, False, timeout=settings.plug_switch_timeout
         )
 
     async def wake_pc(self) -> bool:
@@ -298,13 +458,20 @@ class PCControlService:
         """
         Shutdown the PC.
 
+        The return code matters: the stop sequence uses it to decide whether the
+        PC was ever asked to shut down, and cutting mains to a PC that is still
+        running would risk a corrupt filesystem.
+
         Returns:
-            True if shutdown command was sent successfully
+            True if the shutdown command was accepted by the PC
         """
         logger.info("Sending shutdown command...")
         try:
             command = "shutdown /s /t 5"
             stdout, stderr, return_code = await self.ssh.execute(command, timeout=10)
+            if return_code != 0:
+                logger.error(f"Shutdown command failed (rc={return_code}): {stderr.strip()}")
+                return False
             logger.info("Shutdown command sent")
             return True
         except Exception as e:
@@ -319,6 +486,7 @@ class PCControlService:
             Dictionary with step results and overall success
         """
         results = {
+            "plug_powered": False,
             "wol_sent": False,
             "network_available": False,
             "ssh_available": False,
@@ -333,49 +501,55 @@ class PCControlService:
         }
 
         try:
-            # Step 1: Send WoL packet
+            # Step 1: Ensure the PC has mains power (a de-energised NIC cannot
+            # hear a magic packet)
+            results["plug_powered"] = await self.power_on_plug()
+            if not results["plug_powered"]:
+                return results
+
+            # Step 2: Send WoL packet
             results["wol_sent"] = await self.wake_pc()
             if not results["wol_sent"]:
                 return results
 
-            # Step 2: Wait for network
+            # Step 3: Wait for network
             results["network_available"] = await self.wait_for_network()
             if not results["network_available"]:
                 return results
 
-            # Step 3: Wait for SSH
+            # Step 4: Wait for SSH
             results["ssh_available"] = await self.wait_for_ssh()
             if not results["ssh_available"]:
                 return results
 
-            # Step 4: Wait for desktop
+            # Step 5: Wait for desktop
             results["desktop_loaded"] = await self.wait_for_desktop()
             if not results["desktop_loaded"]:
                 return results
 
-            # Step 5: Stop Sunshine
+            # Step 6: Stop Sunshine
             results["sunshine_stopped"] = await self.stop_sunshine()
 
-            # Step 6: Kill any existing Zwift processes
+            # Step 7: Kill any existing Zwift processes
             results["zwift_killed"] = await self.kill_zwift_processes()
 
-            # Step 7: Launch Zwift
+            # Step 8: Launch Zwift
             results["zwift_launched"] = await self.launch_zwift()
             if not results["zwift_launched"]:
                 return results
 
-            # Step 8: Activate Zwift launcher
+            # Step 9: Activate Zwift launcher
             await self.activate_zwift_launcher()
 
-            # Step 9: Launch Sauce
+            # Step 10: Launch Sauce
             results["sauce_launched"] = await self.launch_sauce()
 
-            # Step 10: Wait for Zwift to start
+            # Step 11: Wait for Zwift to start
             results["zwift_running"] = await self.wait_for_zwift()
             if not results["zwift_running"]:
                 return results
 
-            # Step 11: Set process priorities
+            # Step 12: Set process priorities
             results["priorities_set"] = await self.set_process_priorities()
 
             # All critical steps succeeded
@@ -395,6 +569,7 @@ class PCControlService:
             Dictionary with step results and overall success
         """
         results = {
+            "plug_powered": False,
             "wol_sent": False,
             "network_available": False,
             "ssh_available": False,
@@ -402,17 +577,22 @@ class PCControlService:
         }
 
         try:
-            # Step 1: Send WoL packet
+            # Step 1: Ensure the PC has mains power
+            results["plug_powered"] = await self.power_on_plug()
+            if not results["plug_powered"]:
+                return results
+
+            # Step 2: Send WoL packet
             results["wol_sent"] = await self.wake_pc()
             if not results["wol_sent"]:
                 return results
 
-            # Step 2: Wait for network
+            # Step 3: Wait for network
             results["network_available"] = await self.wait_for_network()
             if not results["network_available"]:
                 return results
 
-            # Step 3: Wait for SSH
+            # Step 4: Wait for SSH
             results["ssh_available"] = await self.wait_for_ssh()
             if not results["ssh_available"]:
                 return results
