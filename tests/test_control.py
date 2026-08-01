@@ -38,39 +38,44 @@ async def test_start_zwift(client):
 
 
 @pytest.mark.asyncio
-async def test_stop_pc_offline(client):
-    """Test stop endpoint when PC is offline."""
-    with patch("api.routers.control.ping_host") as mock_ping:
-        # Mock PC offline
-        mock_ping.return_value = (False, None)
-
-        response = client.post("/api/v1/control/stop")
-
-        assert response.status_code == 400
-        assert "not online" in response.json()["detail"].lower()
-
-
-@pytest.mark.asyncio
-async def test_stop_pc_online(client):
-    """Test stop endpoint when PC is online."""
-    with (
-        patch("api.routers.control.ping_host") as mock_ping,
-        patch("api.routers.control.PCControlService") as mock_pc_control,
-    ):
-        # Mock PC online
-        mock_ping.return_value = (True, 5)
-
-        # Mock shutdown success
-        mock_service = AsyncMock()
-        mock_service.shutdown_pc = AsyncMock(return_value=True)
-        mock_pc_control.return_value = mock_service
+async def test_stop_pc(client):
+    """Stop returns a task ID: cutting mains can outlast any HTTP timeout."""
+    with patch("api.routers.control.task_manager") as mock_task_manager:
+        test_task_id = uuid4()
+        mock_task = Task(task_id=test_task_id, status=TaskStatus.PENDING, task_type="stop")
+        mock_task_manager.create_task.return_value = mock_task
 
         response = client.post("/api/v1/control/stop")
 
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert "shutdown" in data["message"].lower()
+        assert data["task_id"] == str(test_task_id)
+        assert "estimated_duration_seconds" in data
+        mock_task_manager.create_task.assert_called_once_with("stop")
+
+
+@pytest.mark.asyncio
+async def test_stop_pc_offline_is_not_rejected(client):
+    """A PC already off the network (mid Windows Update) is not rejected.
+
+    Ping going quiet is not proof the machine is off, and its mains still need
+    cutting once the update finishes, so the sequence is scheduled either way.
+    The decision to actually cut power lives in the sequence, not here.
+    """
+    with (
+        patch("api.routers.control.task_manager") as mock_task_manager,
+        patch("api.services.task_manager.ping_host") as mock_ping,
+    ):
+        mock_ping.return_value = (False, None)
+        test_task_id = uuid4()
+        mock_task = Task(task_id=test_task_id, status=TaskStatus.PENDING, task_type="stop")
+        mock_task_manager.create_task.return_value = mock_task
+
+        response = client.post("/api/v1/control/stop")
+
+        assert response.status_code == 200
+        assert response.json()["task_id"] == str(test_task_id)
 
 
 @pytest.mark.asyncio

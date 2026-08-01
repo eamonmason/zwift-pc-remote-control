@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from api.models import PCStatus, ZwiftStatus
+from api.models import PCStatus, PlugStatus, ZwiftStatus
 
 
 @pytest.mark.asyncio
@@ -152,6 +152,13 @@ async def test_get_full_status(client):
                     status="Stopped",
                 ),
                 obs=ZwiftStatus(running=False),
+                plug=PlugStatus(
+                    configured=True,
+                    reachable=True,
+                    on=True,
+                    power_watts=142.7,
+                    ip_address="192.168.1.175",
+                ),
             )
         )
 
@@ -163,3 +170,43 @@ async def test_get_full_status(client):
         assert data["pc"]["ssh_available"] is True
         assert data["zwift"]["running"] is True
         assert data["sunshine"]["running"] is False
+        assert data["plug"]["on"] is True
+        assert data["plug"]["power_watts"] == 142.7
+
+
+@pytest.mark.asyncio
+async def test_get_plug_status(client):
+    """Plug status is reported independently of the PC being up."""
+    with patch("api.routers.status.status_checker") as mock_checker:
+        mock_checker.check_plug = AsyncMock(
+            return_value=PlugStatus(
+                configured=True,
+                reachable=True,
+                on=True,
+                power_watts=63.4,
+                ip_address="192.168.1.175",
+            )
+        )
+
+        response = client.get("/api/v1/status/plug")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["configured"] is True
+        assert data["reachable"] is True
+        assert data["on"] is True
+        assert data["power_watts"] == 63.4
+
+
+@pytest.mark.asyncio
+async def test_get_plug_status_unconfigured(client):
+    """With no plug configured the endpoint says so rather than erroring."""
+    with patch("api.routers.status.status_checker") as mock_checker:
+        mock_checker.check_plug = AsyncMock(return_value=PlugStatus(configured=False))
+
+        response = client.get("/api/v1/status/plug")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["configured"] is False
+        assert data["on"] is None

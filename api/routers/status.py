@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from api.models import FullStatus, PCStatus, ZwiftStatus
+from api.models import FullStatus, PCStatus, PlugStatus, ZwiftStatus
 from api.services.status_checker import StatusChecker
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,21 @@ async def get_pc_status() -> PCStatus:
     """
     logger.info("PC status check requested")
     return await status_checker.check_pc_online()
+
+
+@router.get("/plug", response_model=PlugStatus)
+async def get_plug_status() -> PlugStatus:
+    """
+    Check the smart plug carrying mains to the PC.
+
+    Works whether or not the PC is up: the power reading is the only signal
+    available while Windows installs updates with the network down.
+
+    Returns:
+        PlugStatus with switch state and instantaneous power draw
+    """
+    logger.info("Plug status check requested")
+    return await status_checker.check_plug()
 
 
 @router.get("/zwift", response_model=ZwiftStatus)
@@ -65,6 +80,7 @@ async def get_full_status() -> FullStatus:
 
     Includes:
     - PC online status
+    - Smart plug state and power draw (if a plug is configured)
     - Zwift process status (if PC online)
     - Sunshine service status (if PC online)
     - OBS process status (if PC online)

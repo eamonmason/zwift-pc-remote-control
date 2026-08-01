@@ -5,7 +5,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from api.config import settings
 from api.models import (
     StartResponse,
     StopResponse,
@@ -16,7 +15,6 @@ from api.models import (
 from api.services.pc_control import PCControlService
 from api.services.status_checker import StatusChecker
 from api.services.task_manager import task_manager
-from api.utils.network import ping_host
 
 logger = logging.getLogger(__name__)
 
@@ -59,39 +57,39 @@ async def start_zwift(background_tasks: BackgroundTasks) -> StartResponse:
 
 
 @router.post("/stop", response_model=StopResponse)
-async def stop_pc() -> StopResponse:
+async def stop_pc(background_tasks: BackgroundTasks) -> StopResponse:
     """
-    Shutdown the Zwift PC.
+    Shutdown the Zwift PC and cut its mains.
 
-    This endpoint sends a shutdown command to the PC via SSH.
-    The PC will shutdown after 5 seconds.
+    This endpoint:
+    1. Sends a shutdown command to the PC via SSH (skipped if the PC is already
+       off the network - which is exactly what a Windows Update install on the
+       way out looks like)
+    2. Waits for the PC to be genuinely powered down, judged by the smart plug's
+       power draw rather than by ping, which goes quiet long before Windows has
+       finished installing updates
+    3. Switches the smart plug off
+
+    It runs in the background because step 2 can take tens of minutes. Poll the
+    returned task ID for progress. Mains are cut only once the PC is confirmed
+    down, and are left on otherwise.
 
     Returns:
-        StopResponse with success status
+        StopResponse with task ID for progress tracking
     """
     logger.info("Stop PC request received")
 
-    # Check if PC is online first
-    is_online, _ = await ping_host(settings.pc_ip, timeout=1)
-    if not is_online:
-        raise HTTPException(
-            status_code=400,
-            detail="PC is not online. Cannot send shutdown command.",
-        )
+    # Create task
+    task = task_manager.create_task("stop")
 
-    # Send shutdown command
-    pc_control = PCControlService()
-    success = await pc_control.shutdown_pc()
-
-    if not success:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to send shutdown command to PC.",
-        )
+    # Run stop sequence in background
+    background_tasks.add_task(task_manager.run_stop_sequence, task.task_id)
 
     return StopResponse(
         success=True,
-        message="Shutdown command sent. PC will shut down in 5 seconds.",
+        message="Stop sequence initiated. Mains will be cut once the PC is powered down.",
+        task_id=task.task_id,
+        estimated_duration_seconds=300,
     )
 
 

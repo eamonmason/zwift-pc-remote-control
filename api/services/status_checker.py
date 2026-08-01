@@ -7,9 +7,11 @@ from api.config import settings
 from api.models import (
     FullStatus,
     PCStatus,
+    PlugStatus,
     ServiceStatus,
     ZwiftStatus,
 )
+from api.utils import shelly
 from api.utils.network import ping_host
 from api.utils.ssh_client import SSHClient
 
@@ -47,6 +49,32 @@ class StatusChecker:
             ssh_available=ssh_available,
             ip_address=settings.pc_ip,
             response_time_ms=response_time_ms,
+        )
+
+    async def check_plug(self) -> PlugStatus:
+        """
+        Check the smart plug carrying mains to the PC.
+
+        Returns:
+            PlugStatus; `configured` is False when no plug is set up, in which
+            case the other fields are meaningless
+        """
+        if not settings.zwift_plug_ip:
+            return PlugStatus(configured=False)
+
+        status = await shelly.get_status(settings.zwift_plug_ip)
+        if status is None:
+            return PlugStatus(configured=True, reachable=False, ip_address=settings.zwift_plug_ip)
+
+        output = status.get("output")
+        power = status.get("apower")
+
+        return PlugStatus(
+            configured=True,
+            reachable=True,
+            on=output if isinstance(output, bool) else None,
+            power_watts=float(power) if isinstance(power, (int, float)) else None,
+            ip_address=settings.zwift_plug_ip,
         )
 
     async def check_zwift_running(self) -> ZwiftStatus:
@@ -158,6 +186,10 @@ class StatusChecker:
         # Always check PC online status first
         pc_status = await self.check_pc_online()
 
+        # The plug answers whether or not the PC is up - and its power reading
+        # is the only clue available while Windows installs updates offline.
+        plug_status = await self.check_plug()
+
         # Only check other statuses if PC is online AND SSH is available
         zwift_status = None
         sunshine_status = None
@@ -173,6 +205,7 @@ class StatusChecker:
 
         return FullStatus(
             pc=pc_status,
+            plug=plug_status,
             zwift=zwift_status,
             sunshine=sunshine_status,
             obs=obs_status,

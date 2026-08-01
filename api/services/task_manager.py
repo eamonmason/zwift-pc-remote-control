@@ -5,8 +5,10 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
+from api.config import settings
 from api.models import Task, TaskProgress, TaskStatus
 from api.services.pc_control import PCControlService
+from api.utils.network import ping_host
 
 logger = logging.getLogger(__name__)
 
@@ -116,62 +118,69 @@ class TaskManager:
         try:
             self.mark_task_running(task_id)
 
-            # Step 1: Send WoL packet
-            self.update_task_progress(task_id, "Sending Wake-on-LAN packet", 1, 9)
+            # Step 1: Ensure the PC has mains power
+            self.update_task_progress(task_id, "Ensuring mains power via smart plug", 1, 10)
+            plug_powered = await self.pc_control.power_on_plug()
+            if not plug_powered:
+                self.mark_task_failed(task_id, "Could not confirm mains power to the PC")
+                return
+
+            # Step 2: Send WoL packet
+            self.update_task_progress(task_id, "Sending Wake-on-LAN packet", 2, 10)
             wol_sent = await self.pc_control.wake_pc()
             if not wol_sent:
                 self.mark_task_failed(task_id, "Failed to send WoL packet")
                 return
 
-            # Step 2: Wait for network
-            self.update_task_progress(task_id, "Waiting for PC to respond to network", 2, 9)
+            # Step 3: Wait for network
+            self.update_task_progress(task_id, "Waiting for PC to respond to network", 3, 10)
             network_available = await self.pc_control.wait_for_network()
             if not network_available:
                 self.mark_task_failed(task_id, "PC did not respond to network")
                 return
 
-            # Step 3: Wait for SSH
-            self.update_task_progress(task_id, "Waiting for SSH to become available", 3, 9)
+            # Step 4: Wait for SSH
+            self.update_task_progress(task_id, "Waiting for SSH to become available", 4, 10)
             ssh_available = await self.pc_control.wait_for_ssh()
             if not ssh_available:
                 self.mark_task_failed(task_id, "SSH did not become available")
                 return
 
-            # Step 4: Wait for desktop
-            self.update_task_progress(task_id, "Waiting for Windows desktop to load", 4, 9)
+            # Step 5: Wait for desktop
+            self.update_task_progress(task_id, "Waiting for Windows desktop to load", 5, 10)
             desktop_loaded = await self.pc_control.wait_for_desktop()
             if not desktop_loaded:
                 self.mark_task_failed(task_id, "Windows desktop did not load")
                 return
 
-            # Step 5: Stop Sunshine
-            self.update_task_progress(task_id, "Stopping Sunshine service", 5, 9)
+            # Step 6: Stop Sunshine
+            self.update_task_progress(task_id, "Stopping Sunshine service", 6, 10)
             await self.pc_control.stop_sunshine()
 
-            # Step 6: Launch Zwift
-            self.update_task_progress(task_id, "Launching Zwift application", 6, 9)
+            # Step 7: Launch Zwift
+            self.update_task_progress(task_id, "Launching Zwift application", 7, 10)
             zwift_launched = await self.pc_control.launch_zwift()
             if not zwift_launched:
                 self.mark_task_failed(task_id, "Failed to launch Zwift")
                 return
 
-            # Step 6b: Activate Zwift launcher (Tab, Tab, Enter)
-            self.update_task_progress(task_id, "Activating Zwift launcher", 6, 9)
+            # Step 7b: Activate Zwift launcher (Tab, Tab, Enter)
+            self.update_task_progress(task_id, "Activating Zwift launcher", 7, 10)
             await self.pc_control.activate_zwift_launcher()
 
-            # Step 7: Launch Sauce
-            self.update_task_progress(task_id, "Launching Sauce for Zwift", 7, 9)
+            # Step 8: Launch Sauce
+            self.update_task_progress(task_id, "Launching Sauce for Zwift", 8, 10)
             await self.pc_control.launch_sauce()
 
-            # Step 8: Wait for Zwift to start
-            self.update_task_progress(task_id, "Waiting for Zwift to start", 8, 9)
+            # Step 9: Wait for Zwift to start
+            self.update_task_progress(task_id, "Waiting for Zwift to start", 9, 10)
             zwift_running = await self.pc_control.wait_for_zwift()
             if not zwift_running:
                 self.mark_task_failed(task_id, "Zwift did not start")
                 return
 
-            # Step 9: Set process priorities
-            self.update_task_progress(task_id, "Setting process priorities", 9, 9)
+            # Step 10: Set process priorities
+            self.update_task_progress(task_id, "Setting process priorities", 10, 10)
             await self.pc_control.set_process_priorities()
 
             # All steps completed
@@ -191,22 +200,29 @@ class TaskManager:
         try:
             self.mark_task_running(task_id)
 
-            # Step 1: Send WoL packet
-            self.update_task_progress(task_id, "Sending Wake-on-LAN packet", 1, 3)
+            # Step 1: Ensure the PC has mains power
+            self.update_task_progress(task_id, "Ensuring mains power via smart plug", 1, 4)
+            plug_powered = await self.pc_control.power_on_plug()
+            if not plug_powered:
+                self.mark_task_failed(task_id, "Could not confirm mains power to the PC")
+                return
+
+            # Step 2: Send WoL packet
+            self.update_task_progress(task_id, "Sending Wake-on-LAN packet", 2, 4)
             wol_sent = await self.pc_control.wake_pc()
             if not wol_sent:
                 self.mark_task_failed(task_id, "Failed to send WoL packet")
                 return
 
-            # Step 2: Wait for network
-            self.update_task_progress(task_id, "Waiting for PC to respond to network", 2, 3)
+            # Step 3: Wait for network
+            self.update_task_progress(task_id, "Waiting for PC to respond to network", 3, 4)
             network_available = await self.pc_control.wait_for_network()
             if not network_available:
                 self.mark_task_failed(task_id, "PC did not respond to network")
                 return
 
-            # Step 3: Wait for SSH
-            self.update_task_progress(task_id, "Waiting for SSH to become available", 3, 3)
+            # Step 4: Wait for SSH
+            self.update_task_progress(task_id, "Waiting for SSH to become available", 4, 4)
             ssh_available = await self.pc_control.wait_for_ssh()
             if not ssh_available:
                 self.mark_task_failed(task_id, "SSH did not become available")
@@ -217,6 +233,55 @@ class TaskManager:
 
         except Exception as e:
             logger.exception(f"Unexpected error in wake sequence: {e}")
+            self.mark_task_failed(task_id, f"Unexpected error: {str(e)}")
+
+    async def run_stop_sequence(self, task_id: UUID) -> None:
+        """
+        Run the stop sequence (shut down, confirm powered down, cut mains).
+
+        Args:
+            task_id: Task UUID to track progress
+
+        This method runs in the background: confirming a power-down can take
+        tens of minutes when Windows decides to install updates on the way out.
+        """
+        try:
+            self.mark_task_running(task_id)
+
+            # Step 1: Ask the PC to shut down, if it is still on the network
+            self.update_task_progress(task_id, "Sending shutdown command", 1, 3)
+            is_online, _ = await ping_host(settings.pc_ip, timeout=1)
+            if is_online:
+                if not await self.pc_control.shutdown_pc():
+                    self.mark_task_failed(task_id, "PC rejected the shutdown command")
+                    return
+            else:
+                logger.info("PC is already off the network - skipping the shutdown command")
+
+            # Step 2: Wait for it to be genuinely powered down
+            self.update_task_progress(
+                task_id,
+                "Waiting for the PC to power down",
+                2,
+                3,
+                details="Windows may be installing updates; power draw is the signal",
+            )
+            if not await self.pc_control.wait_for_pc_powered_down():
+                self.mark_task_failed(
+                    task_id, "Could not confirm the PC powered down - mains left ON"
+                )
+                return
+
+            # Step 3: Cut mains
+            self.update_task_progress(task_id, "Cutting mains via smart plug", 3, 3)
+            if not await self.pc_control.power_off_plug():
+                self.mark_task_failed(task_id, "Failed to cut mains - check the plug")
+                return
+
+            self.mark_task_completed(task_id)
+
+        except Exception as e:
+            logger.exception(f"Unexpected error in stop sequence: {e}")
             self.mark_task_failed(task_id, f"Unexpected error: {str(e)}")
 
 
