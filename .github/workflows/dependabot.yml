@@ -3,6 +3,12 @@ name: Dependabot Auto-merge
 on:
   pull_request:
 
+# This workflow never uses the default GITHUB_TOKEN — every privileged step
+# (approve, wait on checks, merge) mints its own token from the APP_ID/
+# APP_PRIVATE_KEY GitHub App via actions/create-github-app-token, and it
+# doesn't check out the repo either. So it needs no default permissions.
+permissions: {}
+
 jobs:
   automerge:
     uses: eamonmason/.github/.github/workflows/dependabot-automerge.yml@main
