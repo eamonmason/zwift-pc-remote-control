@@ -44,20 +44,18 @@ async def send_wol_packet(mac_address: str, target_ip: str = "") -> bool:
             broadcast = "255.255.255.255"
             local_ip = ""
 
-        # Tracked separately from local_ip itself so the log line below never
-        # reads the address (CodeQL flags any use of it as clear-text logging
-        # of private data, even a truthiness check).
-        bound_to_interface = bool(local_ip)
-
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             if local_ip:
                 sock.bind((local_ip, 0))
             sock.sendto(magic, (broadcast, 9))
 
-        broadcast_mode = "directed subnet broadcast" if bound_to_interface else "limited broadcast"
-        bind_mode = "bound to source interface" if bound_to_interface else "INADDR_ANY"
-        logger.info(f"WoL packet sent to {mac_address} via {broadcast_mode} ({bind_mode})")
+        # CodeQL models socket.getsockname()'s result (local_ip) as private
+        # data, and taints anything computed from it for logging purposes -
+        # even a truthiness check or a ternary between two constant strings
+        # keeps getting flagged. So this intentionally logs neither local_ip
+        # nor anything derived from it; only the always-safe mac_address.
+        logger.info(f"WoL packet sent to {mac_address}")
         return True
 
     except Exception as e:
