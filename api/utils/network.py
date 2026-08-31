@@ -50,10 +50,11 @@ async def send_wol_packet(mac_address: str, target_ip: str = "") -> bool:
                 sock.bind((local_ip, 0))
             sock.sendto(magic, (broadcast, 9))
 
-        logger.info(
-            f"WoL packet sent to {mac_address} via {broadcast} "
-            f"(bound to {local_ip or 'INADDR_ANY'})"
-        )
+        # Deliberately no device identifier or address in this log line:
+        # CodeQL's private-data heuristic matches on the `mac_address`
+        # parameter's name (and separately flagged local_ip/getsockname()
+        # results in earlier revisions of this fix), so neither belongs here.
+        logger.info("WoL packet sent")
         return True
 
     except Exception as e:
