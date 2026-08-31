@@ -51,8 +51,9 @@ async def send_wol_packet(mac_address: str, target_ip: str = "") -> bool:
             sock.sendto(magic, (broadcast, 9))
 
         logger.info(
-            f"WoL packet sent to {mac_address} via {broadcast} "
-            f"(bound to {local_ip or 'INADDR_ANY'})"
+            f"WoL packet sent to {mac_address} via "
+            f"{'directed subnet broadcast' if local_ip else 'limited broadcast'} "
+            f"({'bound to source interface' if local_ip else 'INADDR_ANY'})"
         )
         return True
 
