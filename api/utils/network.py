@@ -50,12 +50,11 @@ async def send_wol_packet(mac_address: str, target_ip: str = "") -> bool:
                 sock.bind((local_ip, 0))
             sock.sendto(magic, (broadcast, 9))
 
-        # CodeQL models socket.getsockname()'s result (local_ip) as private
-        # data, and taints anything computed from it for logging purposes -
-        # even a truthiness check or a ternary between two constant strings
-        # keeps getting flagged. So this intentionally logs neither local_ip
-        # nor anything derived from it; only the always-safe mac_address.
-        logger.info(f"WoL packet sent to {mac_address}")
+        # Deliberately no device identifier or address in this log line:
+        # CodeQL's private-data heuristic matches on the `mac_address`
+        # parameter's name (and separately flagged local_ip/getsockname()
+        # results in earlier revisions of this fix), so neither belongs here.
+        logger.info("WoL packet sent")
         return True
 
     except Exception as e:
