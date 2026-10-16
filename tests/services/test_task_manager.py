@@ -1,11 +1,12 @@
 """Tests for the background task sequences."""
 
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from api.models import TaskStatus
-from api.services.task_manager import TaskManager
+from api.services.task_manager import ACTIVE_TASK_MAX_AGE, TaskManager
 
 
 @pytest.fixture
@@ -112,3 +113,48 @@ async def test_run_wake_sequence_powers_plug_before_wol(manager):
 
     assert manager.get_task(task.task_id).status == TaskStatus.COMPLETED
     manager.pc_control.power_on_plug.assert_awaited_once()
+
+
+def test_find_active_task_returns_pending_and_running(manager):
+    """Both a queued and an executing task count as in flight."""
+    pending = manager.create_task("start")
+    assert manager.find_active_task("start") is pending
+
+    manager.mark_task_running(pending.task_id)
+    assert manager.find_active_task("start") is pending
+
+
+def test_find_active_task_ignores_finished_tasks(manager):
+    """Completed and failed tasks must not block a fresh start."""
+    done = manager.create_task("start")
+    manager.mark_task_completed(done.task_id)
+    failed = manager.create_task("start")
+    manager.mark_task_failed(failed.task_id, "boom")
+
+    assert manager.find_active_task("start") is None
+
+
+def test_find_active_task_is_per_task_type(manager):
+    """A running wake or stop must not block a start."""
+    manager.create_task("wake")
+    manager.create_task("stop")
+
+    assert manager.find_active_task("start") is None
+
+
+def test_find_active_task_ignores_wedged_tasks(manager):
+    """A task stuck 'running' past the age cap cannot block starts forever."""
+    stale = manager.create_task("start")
+    manager.mark_task_running(stale.task_id)
+    stale.created_at = datetime.utcnow() - ACTIVE_TASK_MAX_AGE - timedelta(seconds=1)
+
+    assert manager.find_active_task("start") is None
+
+
+def test_find_active_task_prefers_the_newest(manager):
+    """If several somehow exist, report the most recent one."""
+    older = manager.create_task("start")
+    older.created_at = datetime.utcnow() - timedelta(minutes=5)
+    newer = manager.create_task("start")
+
+    assert manager.find_active_task("start") is newer
