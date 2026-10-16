@@ -1,7 +1,7 @@
 """Task manager for tracking and executing background tasks."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -11,6 +11,11 @@ from api.services.pc_control import PCControlService
 from api.utils.network import ping_host
 
 logger = logging.getLogger(__name__)
+
+# A task still pending/running after this long is treated as dead, so a wedged
+# sequence cannot block new requests forever. Comfortably above the longest
+# legitimate start (WoL + SSH + desktop + launcher waits).
+ACTIVE_TASK_MAX_AGE = timedelta(minutes=15)
 
 
 class TaskManager:
@@ -52,6 +57,31 @@ class TaskManager:
             Task object if found, None otherwise
         """
         return self.tasks.get(task_id)
+
+    def find_active_task(self, task_type: str) -> Optional[Task]:
+        """
+        Find a task of this type that is still pending or running.
+
+        Lets an endpoint hand back the in-flight task instead of starting a
+        second, concurrent sequence (a double-tapped Siri shortcut sends two
+        requests seconds apart, and two launch sequences fight over the same
+        launcher window).
+
+        Args:
+            task_type: Type of task (start, wake, etc.)
+
+        Returns:
+            The newest live task of that type, or None
+        """
+        cutoff = datetime.utcnow() - ACTIVE_TASK_MAX_AGE
+        live = [
+            task
+            for task in self.tasks.values()
+            if task.task_type == task_type
+            and task.status in (TaskStatus.PENDING, TaskStatus.RUNNING)
+            and task.created_at >= cutoff
+        ]
+        return max(live, key=lambda task: task.created_at, default=None)
 
     def update_task_progress(
         self,

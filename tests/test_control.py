@@ -25,6 +25,7 @@ async def test_start_zwift(client):
         test_task_id = uuid4()
         mock_task = Task(task_id=test_task_id, status=TaskStatus.PENDING, task_type="start")
         mock_task_manager.create_task.return_value = mock_task
+        mock_task_manager.find_active_task.return_value = None
 
         response = client.post("/api/v1/control/start")
 
@@ -35,6 +36,26 @@ async def test_start_zwift(client):
         assert "message" in data
         assert "estimated_duration_seconds" in data
         assert data["estimated_duration_seconds"] == 180
+        mock_task_manager.create_task.assert_called_once_with("start")
+
+
+@pytest.mark.asyncio
+async def test_start_zwift_while_one_is_running_returns_the_same_task(client):
+    """A double-tapped shortcut must not start a second, parallel sequence."""
+    with patch("api.routers.control.task_manager") as mock_task_manager:
+        running_id = uuid4()
+        mock_task_manager.find_active_task.return_value = Task(
+            task_id=running_id, status=TaskStatus.RUNNING, task_type="start"
+        )
+
+        response = client.post("/api/v1/control/start")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] == str(running_id)
+        assert "already in progress" in data["message"]
+        mock_task_manager.find_active_task.assert_called_once_with("start")
+        mock_task_manager.create_task.assert_not_called()
 
 
 @pytest.mark.asyncio

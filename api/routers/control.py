@@ -38,10 +38,24 @@ async def start_zwift(background_tasks: BackgroundTasks) -> StartResponse:
     8. Waits for Zwift to start
     9. Sets process priorities
 
+    Idempotent: if a start is already pending or running, its task ID is
+    returned instead of launching a second sequence.
+
     Returns:
         StartResponse with task ID for progress tracking
     """
     logger.info("Start Zwift request received")
+
+    # No await between this check and create_task, so two requests cannot both
+    # pass it.
+    active = task_manager.find_active_task("start")
+    if active:
+        logger.info(f"Start already in progress (task {active.task_id}); not starting another")
+        return StartResponse(
+            task_id=active.task_id,
+            message="Start already in progress. Use the task ID to check progress.",
+            estimated_duration_seconds=180,
+        )
 
     # Create task
     task = task_manager.create_task("start")

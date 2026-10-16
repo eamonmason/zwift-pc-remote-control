@@ -73,70 +73,7 @@ EOF
 # =============================================================================
 # Script 3: zwift-launcher-keys.ps1
 # =============================================================================
-cat > "$TEMP_DIR/zwift-launcher-keys.ps1" << 'EOF'
-# Automated keyboard input for Zwift launcher
-# Handles Tab, Tab, Enter to start Zwift from the launcher window
-# Runs in user's interactive session to access GUI windows
-
-# Wait longer for launcher window to fully initialize (increased to 30s)
-Write-Host 'Waiting 30 seconds for launcher window to initialize...'
-Start-Sleep -Seconds 30
-
-# Find ZwiftLauncher process
-$process = Get-Process ZwiftLauncher -ErrorAction SilentlyContinue
-if (-not $process) {
-    Write-Host 'ERROR: ZwiftLauncher process not found'
-    exit 1
-}
-
-# Windows API for window activation
-Add-Type @"
-    using System;
-    using System.Runtime.InteropServices;
-    public class WinAPI {
-        [DllImport("user32.dll")]
-        public static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        public static extern bool IsIconic(IntPtr hWnd);
-    }
-"@
-
-# Get window handle
-$hwnd = $process.MainWindowHandle
-if ($hwnd -eq 0) {
-    Write-Host 'ERROR: Window handle is 0 (launcher window not accessible)'
-    exit 1
-}
-
-Write-Host "Found launcher window (handle: $hwnd)"
-
-# Restore if minimized
-if ([WinAPI]::IsIconic($hwnd)) {
-    Write-Host 'Restoring minimized window'
-    [WinAPI]::ShowWindow($hwnd, 9)  # SW_RESTORE
-    Start-Sleep -Milliseconds 300
-}
-
-# Set as foreground window
-$activated = [WinAPI]::SetForegroundWindow($hwnd)
-Write-Host "Window activation: $activated"
-Start-Sleep -Milliseconds 500
-
-# Send keyboard input
-Add-Type -AssemblyName System.Windows.Forms
-Write-Host "Sending keyboard input: Tab, Tab, Enter"
-[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-Start-Sleep -Milliseconds 500
-[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-Start-Sleep -Milliseconds 500
-[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-
-Write-Host 'Keyboard input sent successfully'
-EOF
+cp "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/windows/zwift-launcher-keys.ps1" "$TEMP_DIR/zwift-launcher-keys.ps1"
 
 echo "  ✓ Created 3 PowerShell scripts"
 echo ""
