@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from api.config import settings
 from api.models import TaskStatus
 from api.services.task_manager import ACTIVE_TASK_MAX_AGE, TaskManager
 
@@ -15,6 +16,21 @@ def manager():
     task_manager = TaskManager()
     task_manager.pc_control = AsyncMock()
     return task_manager
+
+
+def test_active_task_age_outlasts_the_longest_legitimate_start():
+    """A slow but healthy start must not be mistaken for a dead one."""
+    longest_start = (
+        settings.plug_switch_timeout
+        + settings.plug_settle_seconds
+        + settings.wol_timeout
+        + settings.ssh_timeout
+        + settings.desktop_timeout
+        + settings.zwift_timeout
+        + 180  # launch, launcher keys, Sauce and priority commands
+    )
+
+    assert ACTIVE_TASK_MAX_AGE.total_seconds() > longest_start
 
 
 @pytest.mark.asyncio

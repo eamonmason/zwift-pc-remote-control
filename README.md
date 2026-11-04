@@ -158,7 +158,7 @@ Response:
 {
   "task_id": "uuid",
   "message": "Start sequence initiated...",
-  "estimated_duration_seconds": 180
+  "estimated_duration_seconds": 360
 }
 ```
 
@@ -361,9 +361,9 @@ anything.
 
 ### Timeout Configuration
 
-- `WOL_TIMEOUT`: Timeout for PC to respond after WoL in seconds (default: 120)
-- `SSH_TIMEOUT`: Timeout for SSH to become available in seconds (default: 60)
-- `DESKTOP_TIMEOUT`: Timeout for Windows desktop to load in seconds (default: 60)
+- `WOL_TIMEOUT`: Timeout for PC to respond after WoL in seconds (default: 240)
+- `SSH_TIMEOUT`: Timeout for SSH to become available in seconds (default: 300)
+- `DESKTOP_TIMEOUT`: Timeout for Windows desktop to load in seconds (default: 300)
 - `ZWIFT_TIMEOUT`: Timeout for Zwift to launch in seconds (default: 60)
 
 ### SSH Configuration

@@ -11,6 +11,15 @@ from api.utils.ssh_client import SSHClient
 
 logger = logging.getLogger(__name__)
 
+# PowerShell can hang for 30s+ while Windows boots. Keep each attempt short so
+# one hung check cannot use up most of an overall wait.
+PROCESS_CHECK_TIMEOUT = 15
+
+# Triggering the launcher keys can time out on a just-booted PC. Without them
+# the launcher sits idle and Zwift never starts, so it is worth another try.
+LAUNCHER_TRIGGER_ATTEMPTS = 3
+LAUNCHER_TRIGGER_TIMEOUT = 30
+
 
 class PCControlService:
     """Service for controlling the Zwift PC remotely."""
@@ -223,7 +232,8 @@ class PCControlService:
         while (asyncio.get_event_loop().time() - start_time) < settings.desktop_timeout:
             try:
                 stdout, _, return_code = await self.ssh.execute_powershell(
-                    "Get-Process explorer -ErrorAction SilentlyContinue | Select-Object -First 1"
+                    "Get-Process explorer -ErrorAction SilentlyContinue | Select-Object -First 1",
+                    timeout=PROCESS_CHECK_TIMEOUT,
                 )
                 if return_code == 0 and stdout:
                     elapsed = int(asyncio.get_event_loop().time() - start_time)
@@ -353,26 +363,41 @@ class PCControlService:
             True if keyboard input was sent successfully
         """
         logger.info("Activating Zwift launcher via scheduled task...")
-        try:
-            # Trigger the ZwiftLauncherKeys scheduled task
-            # This task runs in the user's interactive session where it can
-            # access the launcher window and send keyboard input
-            command = f'schtasks /Run /TN "{settings.zwift_launcher_keys_task}"'
-            stdout, stderr, return_code = await self.ssh.execute(command, timeout=10)
+        # Trigger the ZwiftLauncherKeys scheduled task
+        # This task runs in the user's interactive session where it can
+        # access the launcher window and send keyboard input
+        command = f'schtasks /Run /TN "{settings.zwift_launcher_keys_task}"'
+
+        for attempt in range(1, LAUNCHER_TRIGGER_ATTEMPTS + 1):
+            try:
+                stdout, stderr, return_code = await self.ssh.execute(
+                    command, timeout=LAUNCHER_TRIGGER_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                # Re-running is safe: Task Scheduler ignores a run request while
+                # the task is active, and the script exits if Zwift is running.
+                logger.warning(
+                    f"Launcher activation trigger timed out "
+                    f"(attempt {attempt}/{LAUNCHER_TRIGGER_ATTEMPTS})"
+                )
+                continue
+            except Exception as e:
+                logger.warning(f"Error activating Zwift launcher: {e}")
+                # Not critical - Zwift might launch anyway
+                return False
 
             if return_code == 0:
                 logger.info("Launcher activation task triggered")
-                # Wait for the automation script to complete (30s internal wait + 5s buffer)
+                # The script keeps running after this: wait_for_zwift covers the rest
                 logger.info("Waiting 35 seconds for launcher automation to complete...")
                 await asyncio.sleep(35)
                 return True
-            else:
-                logger.warning(f"Failed to trigger launcher activation: {stderr}")
-                return False
-        except Exception as e:
-            logger.warning(f"Error activating Zwift launcher: {e}")
-            # Not critical - Zwift might launch anyway
+
+            logger.warning(f"Failed to trigger launcher activation: {stderr}")
             return False
+
+        logger.warning("Giving up on the launcher activation trigger - keys were not sent")
+        return False
 
     async def launch_sauce(self) -> bool:
         """
@@ -410,7 +435,8 @@ class PCControlService:
         while (asyncio.get_event_loop().time() - start_time) < settings.zwift_timeout:
             try:
                 stdout, _, return_code = await self.ssh.execute_powershell(
-                    "Get-Process ZwiftApp -ErrorAction SilentlyContinue | Select-Object -First 1"
+                    "Get-Process ZwiftApp -ErrorAction SilentlyContinue | Select-Object -First 1",
+                    timeout=PROCESS_CHECK_TIMEOUT,
                 )
                 if return_code == 0 and stdout:
                     elapsed = int(asyncio.get_event_loop().time() - start_time)

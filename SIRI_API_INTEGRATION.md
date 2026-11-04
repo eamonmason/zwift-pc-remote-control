@@ -65,7 +65,7 @@ This shortcut wakes your PC, launches Zwift, and notifies you when ready.
 
 #### Action 4: Repeat
 
-- **Repeat**: 6 times
+- **Repeat**: 16 times (a cold boot from plug-off takes about 6 minutes)
 
 #### Inside the Repeat Loop - Action 5: Get Contents of URL
 
@@ -125,8 +125,8 @@ Say: "Hey Siri, start Zwift"
 Expected behavior:
 
 - Shortcut starts immediately
-- After ~30s: notification "Zwift is ready!" (or continues waiting)
-- Total time: 2-3 minutes for full sequence
+- Notification "Zwift is ready!" when the sequence finishes
+- Total time: about 6 minutes from plug-off, less if the PC is already on
 
 ## Shortcut 2: "Stop Zwift"
 

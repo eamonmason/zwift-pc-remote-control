@@ -34,7 +34,9 @@ class PCStatus(BaseModel):
 class ZwiftStatus(BaseModel):
     """Zwift process status response."""
 
-    running: bool = Field(description="Whether Zwift is running")
+    running: Optional[bool] = Field(
+        description="Whether Zwift is running; null if the check failed, so unknown"
+    )
     process_id: Optional[int] = Field(default=None, description="Zwift process ID if running")
     cpu_usage: Optional[float] = Field(
         default=None, description="CPU usage in seconds (cumulative)"
@@ -49,7 +51,9 @@ class ServiceStatus(BaseModel):
     """Windows service status."""
 
     name: str = Field(description="Service name")
-    running: bool = Field(description="Whether the service is running")
+    running: Optional[bool] = Field(
+        description="Whether the service is running; null if the check failed, so unknown"
+    )
     status: Optional[str] = Field(default=None, description="Service status string")
 
 
@@ -110,7 +114,7 @@ class StartResponse(BaseModel):
 
     task_id: UUID = Field(description="Task ID for tracking progress")
     message: str = Field(description="Informational message")
-    estimated_duration_seconds: int = Field(default=180, description="Estimated time to completion")
+    estimated_duration_seconds: int = Field(default=360, description="Estimated time to completion")
 
 
 class StopResponse(BaseModel):
@@ -132,7 +136,9 @@ class WakeResponse(BaseModel):
 
     task_id: UUID = Field(description="Task ID for tracking progress")
     message: str = Field(description="Informational message")
-    estimated_duration_seconds: int = Field(default=60, description="Estimated time for PC to boot")
+    estimated_duration_seconds: int = Field(
+        default=180, description="Estimated time for PC to boot"
+    )
 
 
 class SunshineResponse(BaseModel):
