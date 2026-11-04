@@ -54,7 +54,7 @@ async def start_zwift(background_tasks: BackgroundTasks) -> StartResponse:
         return StartResponse(
             task_id=active.task_id,
             message="Start already in progress. Use the task ID to check progress.",
-            estimated_duration_seconds=180,
+            estimated_duration_seconds=360,
         )
 
     # Create task
@@ -66,7 +66,7 @@ async def start_zwift(background_tasks: BackgroundTasks) -> StartResponse:
     return StartResponse(
         task_id=task.task_id,
         message="Start sequence initiated. Use the task ID to check progress.",
-        estimated_duration_seconds=180,
+        estimated_duration_seconds=360,
     )
 
 
@@ -133,7 +133,7 @@ async def wake_pc(background_tasks: BackgroundTasks) -> WakeResponse:
     return WakeResponse(
         task_id=task.task_id,
         message="Wake sequence initiated. PC will boot without launching Zwift.",
-        estimated_duration_seconds=60,
+        estimated_duration_seconds=180,
     )
 
 
@@ -302,6 +302,15 @@ async def toggle_sunshine() -> SunshineResponse:
     # Check current Sunshine status
     service_status = await status_checker.check_sunshine_status()
     pc_control = PCControlService()
+
+    # Without a known state there is nothing safe to toggle: starting Sunshine by
+    # mistake would take the encoder away from a running Zwift.
+    if service_status.running is None:
+        return SunshineResponse(
+            success=False,
+            message="Could not determine Sunshine's state, so it was left unchanged.",
+            service_status=service_status,
+        )
 
     # Toggle based on current state
     if service_status.running:

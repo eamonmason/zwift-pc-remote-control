@@ -107,12 +107,13 @@ class StatusChecker:
                     )
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.error(f"Failed to parse Zwift process info: {e}")
+                    return ZwiftStatus(running=None)
 
             return ZwiftStatus(running=False)
 
         except Exception as e:
             logger.error(f"Error checking Zwift status: {e}")
-            return ZwiftStatus(running=False)
+            return ZwiftStatus(running=None)
 
     async def check_sunshine_status(self) -> ServiceStatus:
         """
@@ -137,11 +138,11 @@ class StatusChecker:
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.error(f"Failed to parse Sunshine status: {e}")
 
-            return ServiceStatus(name="SunshineService", running=False, status="Unknown")
+            return ServiceStatus(name="SunshineService", running=None, status="Unknown")
 
         except Exception as e:
             logger.error(f"Error checking Sunshine status: {e}")
-            return ServiceStatus(name="SunshineService", running=False, status="Error")
+            return ServiceStatus(name="SunshineService", running=None, status="Unknown")
 
     async def check_obs_running(self) -> ZwiftStatus:
         """
@@ -169,12 +170,13 @@ class StatusChecker:
                     )
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.error(f"Failed to parse OBS process info: {e}")
+                    return ZwiftStatus(running=None)
 
             return ZwiftStatus(running=False)
 
         except Exception as e:
             logger.error(f"Error checking OBS status: {e}")
-            return ZwiftStatus(running=False)
+            return ZwiftStatus(running=None)
 
     async def check_full_status(self) -> FullStatus:
         """

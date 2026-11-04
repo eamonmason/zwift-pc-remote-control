@@ -1,11 +1,12 @@
 """Tests for PC control service."""
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from api.config import Settings
-from api.services.pc_control import PCControlService
+from api.services.pc_control import PROCESS_CHECK_TIMEOUT, PCControlService
 
 PLUG_IP = "192.168.1.175"
 
@@ -243,6 +244,83 @@ async def test_activate_zwift_launcher_exception(pc_control_service):
 
     # Should return False, not raise exception (non-critical operation)
     assert result is False
+    pc_control_service.ssh.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_activate_zwift_launcher_retries_after_timeout(pc_control_service):
+    """A trigger that times out on a just-booted PC must still send the keys."""
+    pc_control_service.ssh.execute = AsyncMock(
+        side_effect=[asyncio.TimeoutError(), ("SUCCESS", "", 0)]
+    )
+
+    with patch("api.services.pc_control.asyncio.sleep", new=AsyncMock()):
+        result = await pc_control_service.activate_zwift_launcher()
+
+    assert result is True
+    assert pc_control_service.ssh.execute.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_activate_zwift_launcher_gives_up_after_repeated_timeouts(pc_control_service):
+    """Retries are bounded, and running out of them is still not fatal."""
+    pc_control_service.ssh.execute = AsyncMock(side_effect=asyncio.TimeoutError())
+
+    with patch("api.services.pc_control.asyncio.sleep", new=AsyncMock()):
+        result = await pc_control_service.activate_zwift_launcher()
+
+    assert result is False
+    assert pc_control_service.ssh.execute.call_count == 3
+
+
+def test_default_timeouts_cover_a_measured_cold_boot(monkeypatch):
+    """
+    Defaults must survive the cold boots measured on the real PC.
+
+    Measured: ping 111s after WoL, SSH 22s later, and logon up to 320s after
+    the kernel starts.
+    """
+    for name in ("WOL_TIMEOUT", "SSH_TIMEOUT", "DESKTOP_TIMEOUT"):
+        monkeypatch.delenv(name, raising=False)
+
+    defaults = Settings(
+        _env_file=None,
+        pc_name="test-pc",
+        pc_ip="192.168.1.100",
+        pc_mac="AA:BB:CC:DD:EE:FF",
+        pc_user="testuser",
+    )
+
+    assert defaults.wol_timeout >= 240
+    assert defaults.ssh_timeout >= 300
+    assert defaults.desktop_timeout >= 300
+
+
+@pytest.mark.asyncio
+async def test_wait_for_desktop_survives_hung_checks(pc_control_service):
+    """PowerShell hangs during boot; a hung check must not end the wait."""
+    pc_control_service.ssh.execute_powershell = AsyncMock(
+        side_effect=[asyncio.TimeoutError(), asyncio.TimeoutError(), ("explorer", "", 0)]
+    )
+
+    with patch("api.services.pc_control.asyncio.sleep", new=AsyncMock()):
+        result = await pc_control_service.wait_for_desktop()
+
+    assert result is True
+    assert pc_control_service.ssh.execute_powershell.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_process_checks_use_a_short_per_attempt_timeout(pc_control_service):
+    """One hung check must not use up most of the wait, as 30s of 60s did."""
+    pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("process", "", 0))
+
+    await pc_control_service.wait_for_desktop()
+    await pc_control_service.wait_for_zwift()
+
+    for call in pc_control_service.ssh.execute_powershell.call_args_list:
+        assert call.kwargs["timeout"] == PROCESS_CHECK_TIMEOUT
+    assert PROCESS_CHECK_TIMEOUT <= 15
 
 
 @pytest.mark.asyncio

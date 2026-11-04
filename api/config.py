@@ -34,10 +34,12 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, description="API server port")
     log_level: str = Field(default="INFO", description="Logging level")
 
-    # Timeout Configuration (in seconds)
-    wol_timeout: int = Field(default=120, description="Timeout for PC to respond after WoL")
-    ssh_timeout: int = Field(default=60, description="Timeout for SSH to become available")
-    desktop_timeout: int = Field(default=60, description="Timeout for Windows desktop to load")
+    # Timeout Configuration (in seconds). Sized for a cold boot from plug-off,
+    # measured on the real PC: ping at 111s, SSH at 133s, and logon up to 320s
+    # after the kernel starts.
+    wol_timeout: int = Field(default=240, description="Timeout for PC to respond after WoL")
+    ssh_timeout: int = Field(default=300, description="Timeout for SSH to become available")
+    desktop_timeout: int = Field(default=300, description="Timeout for Windows desktop to load")
     zwift_timeout: int = Field(default=60, description="Timeout for Zwift to launch")
 
     # Plug Timing Configuration

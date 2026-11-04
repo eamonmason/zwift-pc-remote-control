@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # A task still pending/running after this long is treated as dead, so a wedged
 # sequence cannot block new requests forever. Comfortably above the longest
 # legitimate start (WoL + SSH + desktop + launcher waits).
-ACTIVE_TASK_MAX_AGE = timedelta(minutes=15)
+ACTIVE_TASK_MAX_AGE = timedelta(minutes=20)
 
 
 class TaskManager:

@@ -35,7 +35,7 @@ async def test_start_zwift(client):
         assert data["task_id"] == str(test_task_id)
         assert "message" in data
         assert "estimated_duration_seconds" in data
-        assert data["estimated_duration_seconds"] == 180
+        assert data["estimated_duration_seconds"] == 360
         mock_task_manager.create_task.assert_called_once_with("start")
 
 
@@ -116,7 +116,7 @@ async def test_wake_pc(client):
         assert data["task_id"] == str(test_task_id)
         assert "message" in data
         assert "estimated_duration_seconds" in data
-        assert data["estimated_duration_seconds"] == 60
+        assert data["estimated_duration_seconds"] == 180
 
 
 def test_get_task_not_found(client):
@@ -174,6 +174,34 @@ async def test_toggle_sunshine_stop_when_running(client):
         assert "stopped" in data["message"].lower()
         assert data["service_status"]["running"] is False
         mock_pc_control.stop_sunshine.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_toggle_sunshine_does_nothing_when_state_is_unknown(client):
+    """A timed-out check must not start Sunshine and take the encoder from Zwift."""
+    with (
+        patch("api.routers.control.StatusChecker") as mock_status_checker_class,
+        patch("api.routers.control.PCControlService") as mock_pc_control_class,
+    ):
+        mock_status_checker = AsyncMock()
+        mock_pc_status = AsyncMock()
+        mock_pc_status.online = True
+        mock_pc_status.ssh_available = True
+        mock_status_checker.check_pc_online = AsyncMock(return_value=mock_pc_status)
+        mock_status_checker.check_sunshine_status = AsyncMock(
+            return_value=ServiceStatus(name="SunshineService", running=None, status="Unknown")
+        )
+        mock_status_checker_class.return_value = mock_status_checker
+
+        mock_pc_control = AsyncMock()
+        mock_pc_control_class.return_value = mock_pc_control
+
+        response = client.post("/api/v1/control/sunshine/toggle")
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+        mock_pc_control.start_sunshine.assert_not_called()
+        mock_pc_control.stop_sunshine.assert_not_called()
 
 
 @pytest.mark.asyncio
