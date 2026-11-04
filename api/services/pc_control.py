@@ -460,25 +460,33 @@ class PCControlService:
         logger.info("Setting process priorities...")
         try:
             script = """
+                $ErrorActionPreference = 'Stop'
                 $zwift = Get-Process ZwiftApp -ErrorAction SilentlyContinue
                 if ($zwift) {
                     $zwift.PriorityClass = 'High'
-                    Write-Host 'Zwift: High priority'
+                    Write-Output 'Zwift: High priority'
                 }
 
                 $obs = Get-Process obs64 -ErrorAction SilentlyContinue
                 if ($obs) {
                     $obs.PriorityClass = 'BelowNormal'
-                    Write-Host 'OBS: BelowNormal priority'
+                    Write-Output 'OBS: BelowNormal priority'
                 }
+
+                # A lookup that finds nothing would otherwise set the exit code to 1.
+                # Real errors stop the script before this, because of 'Stop' above.
+                exit 0
             """
             stdout, stderr, return_code = await self.ssh.execute_powershell(script)
+            if return_code != 0:
+                logger.warning(f"Could not set process priorities: {stderr}")
+                return False
             logger.info(f"Process priorities set: {stdout}")
             return True
         except Exception as e:
+            # Not fatal to a start sequence, which carries on regardless
             logger.warning(f"Could not set process priorities: {e}")
-            # Not critical - continue anyway
-            return True
+            return False
 
     async def shutdown_pc(self) -> bool:
         """
