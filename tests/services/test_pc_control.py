@@ -324,6 +324,34 @@ async def test_process_checks_use_a_short_per_attempt_timeout(pc_control_service
 
 
 @pytest.mark.asyncio
+async def test_set_process_priorities_reports_failure(pc_control_service):
+    """A non-zero exit means the priorities were not set, so it must not claim success."""
+    pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("", "Access is denied", 1))
+
+    assert await pc_control_service.set_process_priorities() is False
+
+
+@pytest.mark.asyncio
+async def test_set_process_priorities_script_exits_cleanly(pc_control_service):
+    """Without this, OBS not running ends the script on a failed lookup: exit 1."""
+    pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("", "", 0))
+
+    await pc_control_service.set_process_priorities()
+
+    script = pc_control_service.ssh.execute_powershell.call_args.args[0]
+    assert script.strip().endswith("exit 0")
+    assert "$ErrorActionPreference = 'Stop'" in script
+
+
+@pytest.mark.asyncio
+async def test_set_process_priorities_survives_ssh_errors(pc_control_service):
+    """Still not fatal to the start sequence, but no longer reported as success."""
+    pc_control_service.ssh.execute_powershell = AsyncMock(side_effect=Exception("SSH lost"))
+
+    assert await pc_control_service.set_process_priorities() is False
+
+
+@pytest.mark.asyncio
 async def test_launch_sauce_success(pc_control_service):
     """Test successful Sauce launch."""
     pc_control_service.ssh.execute = AsyncMock(return_value=("SUCCESS", "", 0))
@@ -380,17 +408,6 @@ async def test_set_process_priorities_success(pc_control_service):
         return_value=("Zwift: High priority\nOBS: BelowNormal priority", "", 0)
     )
 
-    result = await pc_control_service.set_process_priorities()
-
-    assert result is True
-
-
-@pytest.mark.asyncio
-async def test_set_process_priorities_exception(pc_control_service):
-    """Test process priority setting handles exceptions gracefully."""
-    pc_control_service.ssh.execute_powershell = AsyncMock(side_effect=Exception("SSH error"))
-
-    # Should return True (non-critical operation)
     result = await pc_control_service.set_process_priorities()
 
     assert result is True

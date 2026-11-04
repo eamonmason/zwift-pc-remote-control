@@ -1,6 +1,7 @@
 """Async SSH client wrapper using asyncssh."""
 
 import asyncio
+import base64
 import logging
 import os
 import time
@@ -98,9 +99,12 @@ class SSHClient:
         Returns:
             Tuple of (stdout, stderr, return_code)
         """
-        # Escape quotes and wrap in powershell command
-        escaped_script = script.replace('"', '\\"')
-        command = f'powershell -command "{escaped_script}"'
+        # Encoded, because the PC's SSH shell is cmd.exe: it stops at the first
+        # newline, so a multi-line script silently never runs and still exits 0.
+        # Progress is silenced or PowerShell writes CLIXML records to stderr.
+        full_script = f"$ProgressPreference = 'SilentlyContinue'\n{script}"
+        encoded = base64.b64encode(full_script.encode("utf-16-le")).decode("ascii")
+        command = f"powershell -NoProfile -NonInteractive -EncodedCommand {encoded}"
         return await self.execute(command, timeout)
 
     async def is_available(self) -> bool:
