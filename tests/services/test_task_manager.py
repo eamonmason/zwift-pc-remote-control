@@ -174,3 +174,39 @@ def test_find_active_task_prefers_the_newest(manager):
     newer = manager.create_task("start")
 
     assert manager.find_active_task("start") is newer
+
+
+@pytest.mark.asyncio
+async def test_cancel_active_tasks_supersedes_a_waiting_stop(manager):
+    """A start after a stop must cancel the stop so it cannot cut mains later."""
+    stop = manager.create_task("stop")
+    manager.mark_task_running(stop.task_id)
+
+    cancelled = manager.cancel_active_tasks("stop", "Superseded by a start request")
+
+    assert cancelled == 1
+    assert manager.get_task(stop.task_id).status == TaskStatus.FAILED
+    assert manager.is_cancelled(stop.task_id)
+    assert manager.find_active_task("stop") is None
+
+
+@pytest.mark.asyncio
+async def test_run_stop_sequence_does_not_cut_mains_once_cancelled(manager):
+    """A cancelled stop leaves the mains alone even if power draw looks idle."""
+    manager.pc_control.shutdown_pc.return_value = True
+    manager.pc_control.power_off_plug.return_value = True
+    task = manager.create_task("stop")
+
+    async def wait_then_cancel(cancelled=None):
+        manager.cancel_active_tasks("stop", "Superseded by a start request")
+        assert cancelled()
+        return True  # even a (wrong) "powered down" answer must not cut mains
+
+    manager.pc_control.wait_for_pc_powered_down.side_effect = wait_then_cancel
+
+    with patch("api.services.task_manager.ping_host") as mock_ping:
+        mock_ping.return_value = (True, 5)
+        await manager.run_stop_sequence(task.task_id)
+
+    manager.pc_control.power_off_plug.assert_not_called()
+    assert manager.get_task(task.task_id).status == TaskStatus.FAILED

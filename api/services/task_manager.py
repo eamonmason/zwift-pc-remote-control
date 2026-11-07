@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # A task still pending/running after this long is treated as dead, so a wedged
 # sequence cannot block new requests forever. Comfortably above the longest
 # legitimate start (WoL + SSH + desktop + launcher waits).
-ACTIVE_TASK_MAX_AGE = timedelta(minutes=20)
+ACTIVE_TASK_MAX_AGE = timedelta(minutes=25)
 
 
 class TaskManager:
@@ -24,6 +24,7 @@ class TaskManager:
     def __init__(self):
         """Initialize task manager with in-memory task store."""
         self.tasks: dict[UUID, Task] = {}
+        self._cancelled: set[UUID] = set()
         self.pc_control = PCControlService()
 
     def create_task(self, task_type: str) -> Task:
@@ -82,6 +83,37 @@ class TaskManager:
             and task.created_at >= cutoff
         ]
         return max(live, key=lambda task: task.created_at, default=None)
+
+    def cancel_active_tasks(self, task_type: str, reason: str) -> int:
+        """
+        Cancel every pending or running task of this type.
+
+        A start or wake supersedes a stop that is still waiting for the PC to
+        power down. Without this the stop keeps polling, sees the freshly booted
+        PC drawing full power, and eventually either fails noisily or, if the
+        PC idles, cuts mains under it.
+
+        Args:
+            task_type: Type of task to cancel (e.g. "stop")
+            reason: Recorded as the task's error
+
+        Returns:
+            Number of tasks cancelled
+        """
+        count = 0
+        for task in self.tasks.values():
+            if task.task_type == task_type and task.status in (
+                TaskStatus.PENDING,
+                TaskStatus.RUNNING,
+            ):
+                self._cancelled.add(task.task_id)
+                self.mark_task_failed(task.task_id, reason)
+                count += 1
+        return count
+
+    def is_cancelled(self, task_id: UUID) -> bool:
+        """Whether the task was cancelled while it was running."""
+        return task_id in self._cancelled
 
     def update_task_progress(
         self,
@@ -296,7 +328,13 @@ class TaskManager:
                 3,
                 details="Windows may be installing updates; power draw is the signal",
             )
-            if not await self.pc_control.wait_for_pc_powered_down():
+            powered_down = await self.pc_control.wait_for_pc_powered_down(
+                cancelled=lambda: self.is_cancelled(task_id)
+            )
+            if self.is_cancelled(task_id):
+                logger.info(f"Stop task {task_id} was cancelled - leaving mains alone")
+                return
+            if not powered_down:
                 self.mark_task_failed(
                     task_id, "Could not confirm the PC powered down - mains left ON"
                 )

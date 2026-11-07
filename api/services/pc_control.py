@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 
 from api.config import settings
 from api.utils import shelly
@@ -78,7 +79,7 @@ class PCControlService:
         await asyncio.sleep(settings.plug_settle_seconds)
         return True
 
-    async def wait_for_pc_powered_down(self) -> bool:
+    async def wait_for_pc_powered_down(self, cancelled: Callable[[], bool] | None = None) -> bool:
         """
         Wait until the PC is genuinely powered down, not merely off the network.
 
@@ -92,13 +93,23 @@ class PCControlService:
         Without a metering plug the second phase cannot be confirmed, and this
         returns False so the caller leaves mains on.
 
+        Args:
+            cancelled: Optional callback; once it returns True the wait gives up
+                at the next poll. A start or wake request supersedes a stop, and
+                the PC drawing full power again must not be read as "still
+                shutting down".
+
         Returns:
             True if the PC was confirmed powered down within the timeout
         """
+        is_cancelled = cancelled or (lambda: False)
         deadline = time.monotonic() + settings.shutdown_timeout
 
         logger.info("Waiting for the PC to stop responding to ping...")
         while time.monotonic() < deadline:
+            if is_cancelled():
+                logger.info("Shutdown wait cancelled")
+                return False
             is_online, _ = await ping_host(settings.pc_ip, timeout=1)
             if not is_online:
                 break
@@ -120,6 +131,9 @@ class PCControlService:
         )
         idle_readings = 0
         while time.monotonic() < deadline:
+            if is_cancelled():
+                logger.info("Shutdown wait cancelled")
+                return False
             power = await shelly.get_power(settings.zwift_plug_ip)
 
             if power is None:

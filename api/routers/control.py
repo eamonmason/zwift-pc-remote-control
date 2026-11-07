@@ -57,6 +57,9 @@ async def start_zwift(background_tasks: BackgroundTasks) -> StartResponse:
             estimated_duration_seconds=360,
         )
 
+    # Powering the PC back on supersedes a stop that is still waiting
+    task_manager.cancel_active_tasks("stop", "Superseded by a start request")
+
     # Create task
     task = task_manager.create_task("start")
 
@@ -123,6 +126,9 @@ async def wake_pc(background_tasks: BackgroundTasks) -> WakeResponse:
         WakeResponse with task ID for progress tracking
     """
     logger.info("Wake PC request received")
+
+    # Powering the PC back on supersedes a stop that is still waiting
+    task_manager.cancel_active_tasks("stop", "Superseded by a wake request")
 
     # Create task
     task = task_manager.create_task("wake")
