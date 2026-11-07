@@ -502,6 +502,7 @@ async def test_full_start_sequence_success(pc_control_service):
     pc_control_service.wait_for_network = AsyncMock(return_value=True)
     pc_control_service.wait_for_ssh = AsyncMock(return_value=True)
     pc_control_service.wait_for_desktop = AsyncMock(return_value=True)
+    pc_control_service.wait_for_internet = AsyncMock(return_value=True)
     pc_control_service.stop_sunshine = AsyncMock(return_value=True)
     pc_control_service.launch_zwift = AsyncMock(return_value=True)
     pc_control_service.launch_sauce = AsyncMock(return_value=True)
@@ -543,6 +544,7 @@ async def test_full_start_sequence_zwift_launch_failure(pc_control_service):
     pc_control_service.wait_for_network = AsyncMock(return_value=True)
     pc_control_service.wait_for_ssh = AsyncMock(return_value=True)
     pc_control_service.wait_for_desktop = AsyncMock(return_value=True)
+    pc_control_service.wait_for_internet = AsyncMock(return_value=True)
     pc_control_service.stop_sunshine = AsyncMock(return_value=True)
     pc_control_service.launch_zwift = AsyncMock(return_value=False)
 
@@ -807,3 +809,56 @@ def test_zwift_timeout_default_outlasts_a_slow_cold_boot():
     from api.config import Settings
 
     assert Settings.model_fields["zwift_timeout"].default >= 240
+
+
+# --- Internet readiness before the launcher starts ---------------------------
+
+
+@pytest.mark.asyncio
+async def test_wait_for_internet_returns_when_the_pc_can_reach_zwift(pc_control_service):
+    """The PC's own connection to Zwift's login host is the readiness signal."""
+    pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("", "", 0))
+
+    with (
+        patch("api.services.pc_control.asyncio.sleep", new=AsyncMock()),
+        patch("api.services.pc_control.time.monotonic", side_effect=fake_clock(1.0)),
+    ):
+        result = await pc_control_service.wait_for_internet()
+
+    assert result is True
+    pc_control_service.ssh.execute_powershell.assert_awaited_once()
+    assert "secure.zwift.com" in pc_control_service.ssh.execute_powershell.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_wait_for_internet_polls_until_the_network_comes_up(pc_control_service):
+    """Right after boot the first checks fail; keep polling rather than give up."""
+    pc_control_service.ssh.execute_powershell = AsyncMock(
+        side_effect=[("", "", 1), TimeoutError(), ("", "", 0)]
+    )
+
+    with (
+        patch("api.services.pc_control.asyncio.sleep", new=AsyncMock()),
+        patch("api.services.pc_control.time.monotonic", side_effect=fake_clock(1.0)),
+    ):
+        result = await pc_control_service.wait_for_internet()
+
+    assert result is True
+    assert pc_control_service.ssh.execute_powershell.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_wait_for_internet_times_out_without_raising(pc_control_service, caplog):
+    """A PC that never gets online is reported, not an exception."""
+    pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("", "", 1))
+
+    with (
+        patch("api.services.pc_control.asyncio.sleep", new=AsyncMock()),
+        patch("api.services.pc_control.time.monotonic", side_effect=fake_clock(30.0)),
+        caplog.at_level("INFO"),
+    ):
+        result = await pc_control_service.wait_for_internet()
+
+    assert result is False
+    assert "could not reach secure.zwift.com" in caplog.text
+    assert "launching zwift anyway" in caplog.text.lower()

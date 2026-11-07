@@ -45,6 +45,19 @@ class Settings(BaseSettings):
         description="Timeout for Zwift to launch (slow cold boots can delay it by minutes)",
     )
 
+    # The Zwift launcher refreshes its login the moment it starts. If the PC's
+    # network is not yet usable it treats the failure as bad credentials and
+    # drops the saved login, so wait for the PC to reach Zwift first.
+    internet_check_host: str = Field(
+        default="secure.zwift.com", description="Host the PC must reach before the launcher starts"
+    )
+    internet_timeout: int = Field(
+        default=120, description="Max seconds to wait for the PC to reach the internet"
+    )
+    internet_settle_seconds: int = Field(
+        default=5, description="Pause after the internet is reachable, before launching Zwift"
+    )
+
     # Plug Timing Configuration
     plug_switch_timeout: int = Field(
         default=30, description="Timeout for the plug to confirm a new switch state"
