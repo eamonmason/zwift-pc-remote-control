@@ -741,3 +741,22 @@ async def test_wake_only_sequence_powers_plug_before_wol(pc_control_service):
 
 # The stop sequence itself lives in TaskManager (the only caller) and is
 # covered in tests/services/test_task_manager.py.
+
+
+@pytest.mark.asyncio
+async def test_wait_for_pc_powered_down_stops_when_cancelled(plug_service):
+    """A superseded stop must stop polling, not run out the whole timeout."""
+    plug_service.mock_shelly.get_power = AsyncMock(return_value=190.0)
+
+    with patch("api.services.pc_control.time.monotonic", side_effect=fake_clock()):
+        result = await plug_service.wait_for_pc_powered_down(cancelled=lambda: True)
+
+    assert result is False
+    plug_service.mock_shelly.get_power.assert_not_called()
+
+
+def test_zwift_timeout_default_outlasts_a_slow_cold_boot():
+    """Zwift can launch several minutes late when Windows is busy at boot."""
+    from api.config import Settings
+
+    assert Settings.model_fields["zwift_timeout"].default >= 240

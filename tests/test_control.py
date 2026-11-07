@@ -281,3 +281,20 @@ async def test_toggle_sunshine_ssh_unavailable(client):
 
         assert response.status_code == 503
         assert "ssh" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path,task_type", [("start", "start"), ("wake", "wake")])
+async def test_start_and_wake_cancel_a_pending_stop(client, path, task_type):
+    """Powering the PC back on must cancel a stop that is still waiting."""
+    with patch("api.routers.control.task_manager") as mock_task_manager:
+        mock_task_manager.create_task.return_value = Task(
+            task_id=uuid4(), status=TaskStatus.PENDING, task_type=task_type
+        )
+        mock_task_manager.find_active_task.return_value = None
+
+        response = client.post(f"/api/v1/control/{path}")
+
+        assert response.status_code == 200
+        mock_task_manager.cancel_active_tasks.assert_called_once()
+        assert mock_task_manager.cancel_active_tasks.call_args.args[0] == "stop"

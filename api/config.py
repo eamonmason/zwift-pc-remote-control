@@ -40,7 +40,10 @@ class Settings(BaseSettings):
     wol_timeout: int = Field(default=240, description="Timeout for PC to respond after WoL")
     ssh_timeout: int = Field(default=300, description="Timeout for SSH to become available")
     desktop_timeout: int = Field(default=300, description="Timeout for Windows desktop to load")
-    zwift_timeout: int = Field(default=60, description="Timeout for Zwift to launch")
+    zwift_timeout: int = Field(
+        default=240,
+        description="Timeout for Zwift to launch (slow cold boots can delay it by minutes)",
+    )
 
     # Plug Timing Configuration
     plug_switch_timeout: int = Field(
