@@ -25,7 +25,7 @@ repos:
 
   # Ruff - Python linting and formatting (matches CI/CD)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.9
+    rev: v0.14.13
     hooks:
       - id: ruff
         name: Run ruff linter
