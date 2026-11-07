@@ -146,9 +146,55 @@ async def test_wait_for_desktop_timeout(pc_control_service):
         assert result is False
 
 
+SC_RUNNING = "SERVICE_NAME: SunshineService\n        STATE              : 4  RUNNING\n"
+SC_STOPPED = "SERVICE_NAME: SunshineService\n        STATE              : 1  STOPPED\n"
+
+
+@pytest.mark.asyncio
+async def test_stop_sunshine_already_stopped_skips_powershell(pc_control_service, caplog):
+    """An already-stopped service is success - no PowerShell, no error logged."""
+    pc_control_service.ssh.execute = AsyncMock(return_value=(SC_STOPPED, "", 0))
+    pc_control_service.ssh.execute_powershell = AsyncMock()
+
+    with caplog.at_level("INFO"):
+        result = await pc_control_service.stop_sunshine()
+
+    assert result is True
+    pc_control_service.ssh.execute_powershell.assert_not_called()
+    assert "already stopped" in caplog.text
+    assert not [r for r in caplog.records if r.levelname in ("ERROR", "WARNING")]
+
+
+@pytest.mark.asyncio
+async def test_stop_sunshine_slow_pc_timeout_is_a_warning_with_a_reason(pc_control_service, caplog):
+    """A timeout on a busy post-boot PC must say so, not log an empty ERROR."""
+    pc_control_service.ssh.execute = AsyncMock(return_value=(SC_RUNNING, "", 0))
+    pc_control_service.ssh.execute_powershell = AsyncMock(side_effect=TimeoutError())
+
+    with caplog.at_level("INFO"):
+        result = await pc_control_service.stop_sunshine()
+
+    assert result is False
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+    assert "TimeoutError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stop_sunshine_unreadable_state_falls_back_to_the_full_script(pc_control_service):
+    """If the cheap state check fails, the full stop script still runs."""
+    pc_control_service.ssh.execute = AsyncMock(side_effect=OSError("boom"))
+    pc_control_service.ssh.execute_powershell = AsyncMock(
+        return_value=("Stopped successfully", "", 0)
+    )
+
+    assert await pc_control_service.stop_sunshine() is True
+    pc_control_service.ssh.execute_powershell.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_stop_sunshine_success(pc_control_service):
     """Test successful Sunshine service stop."""
+    pc_control_service.ssh.execute = AsyncMock(return_value=(SC_RUNNING, "", 0))
     pc_control_service.ssh.execute_powershell = AsyncMock(
         return_value=("Stopped successfully", "", 0)
     )
@@ -161,6 +207,7 @@ async def test_stop_sunshine_success(pc_control_service):
 @pytest.mark.asyncio
 async def test_stop_sunshine_not_found(pc_control_service):
     """Test Sunshine service not found."""
+    pc_control_service.ssh.execute = AsyncMock(return_value=("", "", 1060))
     pc_control_service.ssh.execute_powershell = AsyncMock(return_value=("Service not found", "", 1))
 
     result = await pc_control_service.stop_sunshine()

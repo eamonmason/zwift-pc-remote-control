@@ -303,9 +303,21 @@ class PCControlService:
             True if service was stopped successfully or already stopped
         """
         logger.info("Stopping Sunshine service...")
+
+        # Cheap pre-check via sc.exe. Right after a cold boot PowerShell can
+        # take longer to start than the command timeout, which used to surface
+        # as an empty ERROR even though the service was already stopped.
+        try:
+            stdout, _, _ = await self.ssh.execute("sc query SunshineService", timeout=20)
+            if "STOPPED" in stdout:
+                logger.info("Sunshine service already stopped")
+                return True
+        except Exception as e:
+            logger.debug(f"Sunshine state pre-check failed ({type(e).__name__}): {e}")
+
         try:
             script = "$service = Get-Service SunshineService -ErrorAction SilentlyContinue; if (-not $service) { Write-Host 'Service not found'; exit 1 }; if ($service.Status -eq 'Running') { Stop-Service -Name SunshineService -Force -ErrorAction Stop; Start-Sleep -Seconds 2 }; $process = Get-Process sunshine -ErrorAction SilentlyContinue; if ($process) { Stop-Process -Id $process.Id -Force; Start-Sleep -Seconds 1 }; $verify = Get-Service SunshineService; if ($verify.Status -eq 'Stopped') { Write-Host 'Stopped successfully'; exit 0 } else { Write-Host 'Failed to stop'; exit 1 }"
-            stdout, stderr, return_code = await self.ssh.execute_powershell(script, timeout=15)
+            stdout, stderr, return_code = await self.ssh.execute_powershell(script, timeout=45)
             if return_code == 0:
                 logger.info("Sunshine service stopped successfully")
                 return True
@@ -313,7 +325,9 @@ class PCControlService:
                 logger.warning(f"Failed to stop Sunshine: {stdout}")
                 return False
         except Exception as e:
-            logger.error(f"Error stopping Sunshine service: {e}")
+            # Not critical: Sunshine only costs some encoder headroom. The
+            # exception text is often empty (timeouts), so name the type.
+            logger.warning(f"Could not stop Sunshine service ({type(e).__name__}): {e}")
             return False
 
     async def start_sunshine(self) -> bool:
