@@ -210,3 +210,66 @@ async def test_run_stop_sequence_does_not_cut_mains_once_cancelled(manager):
 
     manager.pc_control.power_off_plug.assert_not_called()
     assert manager.get_task(task.task_id).status == TaskStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_run_start_sequence_waits_for_internet_before_launching_zwift(manager):
+    """The launcher must not start until the PC's network is usable.
+
+    Started too early it fails its login refresh and discards the saved login.
+    """
+    order = []
+
+    def record(name, result=True):
+        async def _call(*args, **kwargs):
+            order.append(name)
+            return result
+
+        return _call
+
+    pc = manager.pc_control
+    pc.power_on_plug.side_effect = record("plug")
+    pc.wake_pc.side_effect = record("wol")
+    pc.wait_for_network.side_effect = record("network")
+    pc.wait_for_ssh.side_effect = record("ssh")
+    pc.wait_for_desktop.side_effect = record("desktop")
+    pc.wait_for_internet.side_effect = record("internet")
+    pc.stop_sunshine.side_effect = record("sunshine")
+    pc.launch_zwift.side_effect = record("launch")
+    pc.activate_zwift_launcher.side_effect = record("keys")
+    pc.launch_sauce.side_effect = record("sauce")
+    pc.wait_for_zwift.side_effect = record("zwift")
+    pc.set_process_priorities.side_effect = record("priorities")
+    task = manager.create_task("start")
+
+    await manager.run_start_sequence(task.task_id)
+
+    assert order.index("desktop") < order.index("internet") < order.index("launch")
+    assert manager.get_task(task.task_id).status == TaskStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_run_start_sequence_carries_on_when_internet_never_comes_up(manager):
+    """No internet is not fatal: try the launch anyway rather than abandon it."""
+    pc = manager.pc_control
+    for name in (
+        "power_on_plug",
+        "wake_pc",
+        "wait_for_network",
+        "wait_for_ssh",
+        "wait_for_desktop",
+        "stop_sunshine",
+        "launch_zwift",
+        "activate_zwift_launcher",
+        "launch_sauce",
+        "wait_for_zwift",
+        "set_process_priorities",
+    ):
+        getattr(pc, name).return_value = True
+    pc.wait_for_internet.return_value = False
+    task = manager.create_task("start")
+
+    await manager.run_start_sequence(task.task_id)
+
+    pc.launch_zwift.assert_awaited_once()
+    assert manager.get_task(task.task_id).status == TaskStatus.COMPLETED

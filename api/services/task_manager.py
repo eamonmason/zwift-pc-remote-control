@@ -215,6 +215,11 @@ class TaskManager:
                 self.mark_task_failed(task_id, "Windows desktop did not load")
                 return
 
+            # Step 5b: Let the PC's network come up before the launcher starts,
+            # or it drops the saved login. Not fatal if it never does.
+            self.update_task_progress(task_id, "Waiting for the PC's internet access", 5, 10)
+            await self.pc_control.wait_for_internet()
+
             # Step 6: Stop Sunshine
             self.update_task_progress(task_id, "Stopping Sunshine service", 6, 10)
             await self.pc_control.stop_sunshine()

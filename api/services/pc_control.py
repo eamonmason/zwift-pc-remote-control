@@ -261,6 +261,52 @@ class PCControlService:
         logger.warning(f"Desktop did not load within {settings.desktop_timeout}s")
         return False
 
+    async def wait_for_internet(self) -> bool:
+        """
+        Wait until the PC itself can open a connection to Zwift's login host.
+
+        The launcher refreshes its saved login as soon as it starts. Started
+        before the network is usable (a fast cold boot), that refresh fails, the
+        launcher reports "Invalid username or password" and discards the saved
+        login. Checking from the PC, rather than from here, covers DNS, DHCP and
+        routing on the PC's side.
+
+        A PC that never gets online is not fatal: this returns False and the
+        caller launches anyway.
+
+        Returns:
+            True if the PC reached the host within the timeout
+        """
+        host = settings.internet_check_host
+        logger.info(f"Waiting for the PC to reach {host}...")
+        script = (
+            "$c = New-Object System.Net.Sockets.TcpClient; "
+            "try { "
+            f"$r = $c.BeginConnect('{host}', 443, $null, $null); "
+            "if ($r.AsyncWaitHandle.WaitOne(3000) -and $c.Connected) { exit 0 } else { exit 1 } "
+            "} catch { exit 1 } finally { $c.Close() }"
+        )
+        deadline = time.monotonic() + settings.internet_timeout
+
+        while time.monotonic() < deadline:
+            try:
+                _, _, return_code = await self.ssh.execute_powershell(
+                    script, timeout=PROCESS_CHECK_TIMEOUT
+                )
+                if return_code == 0:
+                    logger.info(f"PC can reach {host}")
+                    await asyncio.sleep(settings.internet_settle_seconds)
+                    return True
+            except Exception as e:
+                logger.debug(f"Internet check failed ({type(e).__name__}): {e}")
+            await asyncio.sleep(3)
+
+        logger.warning(
+            f"PC could not reach {host} within {settings.internet_timeout}s - "
+            "launching Zwift anyway"
+        )
+        return False
+
     async def kill_zwift_processes(self) -> bool:
         """
         Kill any existing Zwift processes (ZwiftLauncher, ZwiftApp, Zwift).
@@ -588,6 +634,9 @@ class PCControlService:
             results["desktop_loaded"] = await self.wait_for_desktop()
             if not results["desktop_loaded"]:
                 return results
+
+            # Step 5b: Let the PC's network come up before the launcher starts
+            await self.wait_for_internet()
 
             # Step 6: Stop Sunshine
             results["sunshine_stopped"] = await self.stop_sunshine()
