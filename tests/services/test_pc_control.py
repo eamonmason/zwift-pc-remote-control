@@ -814,6 +814,13 @@ def test_zwift_timeout_default_outlasts_a_slow_cold_boot():
 # --- Internet readiness before the launcher starts ---------------------------
 
 
+def _internet_check_host() -> str:
+    """The host the PC must reach, read from the setting rather than hard-coded."""
+    from api.config import Settings
+
+    return Settings.model_fields["internet_check_host"].default
+
+
 @pytest.mark.asyncio
 async def test_wait_for_internet_returns_when_the_pc_can_reach_zwift(pc_control_service):
     """The PC's own connection to Zwift's login host is the readiness signal."""
@@ -827,7 +834,8 @@ async def test_wait_for_internet_returns_when_the_pc_can_reach_zwift(pc_control_
 
     assert result is True
     pc_control_service.ssh.execute_powershell.assert_awaited_once()
-    assert "secure.zwift.com" in pc_control_service.ssh.execute_powershell.await_args.args[0]
+    script = pc_control_service.ssh.execute_powershell.await_args.args[0]
+    assert f"BeginConnect('{_internet_check_host()}', 443" in script
 
 
 @pytest.mark.asyncio
@@ -860,5 +868,5 @@ async def test_wait_for_internet_times_out_without_raising(pc_control_service, c
         result = await pc_control_service.wait_for_internet()
 
     assert result is False
-    assert "could not reach secure.zwift.com" in caplog.text
+    assert f"could not reach {_internet_check_host()}" in caplog.text.lower()
     assert "launching zwift anyway" in caplog.text.lower()
