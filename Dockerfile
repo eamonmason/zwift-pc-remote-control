@@ -1,5 +1,5 @@
 # Stage 1: Builder
-FROM python:3.15-slim AS builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /build
 
@@ -13,7 +13,7 @@ COPY pyproject.toml ./
 RUN uv pip install --system --no-cache-dir -e .
 
 # Stage 2: Runtime
-FROM python:3.15-slim
+FROM python:3.13-slim
 
 # Install only essential system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
