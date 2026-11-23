@@ -13,6 +13,11 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    ignore:
+      # Python minor releases (3.x -> 3.y) change the ABI and wheels lag for
+      # months, so they break image builds. Upgrade deliberately, by hand.
+      - dependency-name: "*python"
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
