@@ -1,16 +1,13 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-    groups:
-      npm-dependencies:
-        patterns: ["*"]
     open-pull-requests-limit: 10
 
-  - package-ecosystem: "pip"
+  - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
